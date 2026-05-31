@@ -1,0 +1,6 @@
+{
+  "name": "HandScript Notes",
+  "description": "Premium Handwritten Notes for Competitive Exams including RSMSSB BCI, RSMSSB SCI, UP LT Grade, and UGC NET CS",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
