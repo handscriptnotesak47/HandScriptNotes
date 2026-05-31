@@ -164,7 +164,7 @@ export default function DocReader({ unit, isUnlocked, onBuy, onClose }: DocReade
                   Syllabus Deep-Dive Locked 🔒
                 </h4>
                 <p className="text-slate-650 text-sm max-w-sm mb-6 leading-relaxed">
-                  You have finished reading the free demo. Get instant, permanent access to all 15-20 units of this exam for only <b>₹20 each</b>! Includes practice questions and exam keys.
+                  You have finished reading the free demo. Get instant, permanent access to all syllabus units of this exam for only <b>₹20 each</b>! Includes practice questions and exam keys.
                 </p>
                 <div className="flex flex-col sm:flex-row space-y-3 sm:space-y-0 sm:space-x-3 w-full max-w-md">
                   <button

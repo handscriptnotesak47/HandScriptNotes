@@ -76,13 +76,13 @@ export default function UserDashboard({ user, allNotes, purchases, onOpenNote, o
               <div className="flex justify-between items-center text-xs">
                 <span className="text-slate-500">Syllabus Covered</span>
                 <span className="font-mono font-bold text-slate-900 font-black">
-                  {Math.round((purchasedNotes.length / 60) * 100)}%
+                  {Math.round((purchasedNotes.length / (allNotes.length || 1)) * 100)}%
                 </span>
               </div>
               <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden border border-slate-200">
                 <div 
                   className="bg-brand-orange h-full rounded-full transition-all duration-300"
-                  style={{ width: `${Math.max(4, Math.round((purchasedNotes.length / 60) * 100))}%` }}
+                  style={{ width: `${Math.max(4, Math.round((purchasedNotes.length / (allNotes.length || 1)) * 100))}%` }}
                 />
               </div>
             </div>
