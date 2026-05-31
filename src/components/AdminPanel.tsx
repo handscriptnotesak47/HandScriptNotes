@@ -6,15 +6,19 @@
 import React, { useState } from 'react';
 import { ShieldCheck, IndianRupee, PieChart, Users, ArrowUpRight, CheckCircle2, MessageSquare, Clipboard, Edit2, Plus, Trash2, Mail, Lock, BarChart3, TrendingUp, Search, Calendar } from 'lucide-react';
 import { PurchaseRecord, ContactQuery, NotesUnit, ExamCategoryType } from '../types';
+import { savePdf } from '../utils/pdfStorage';
 
 interface AdminPanelProps {
   purchases: PurchaseRecord[];
   queries: ContactQuery[];
   notesList: NotesUnit[];
   onUpdateNotePrice: (unitId: string, newPrice: number) => void;
+  onUpdateNotePdf: (unitId: string, pdfUrl: string, pdfName: string) => void;
   onAddNewUnit: (newUnit: NotesUnit) => void;
   onRemoveUnit: (unitId: string) => void;
   onAnswerQuery: (queryId: string) => void;
+  onApprovePurchase?: (orderId: string) => void;
+  onDeclinePurchase?: (orderId: string) => void;
 }
 
 export default function AdminPanel({
@@ -22,9 +26,12 @@ export default function AdminPanel({
   queries,
   notesList,
   onUpdateNotePrice,
+  onUpdateNotePdf,
   onAddNewUnit,
   onRemoveUnit,
-  onAnswerQuery
+  onAnswerQuery,
+  onApprovePurchase,
+  onDeclinePurchase
 }: AdminPanelProps) {
   const [isAdminAuthenticated, setIsAdminAuthenticated] = useState(false);
   const [adminPassword, setAdminPassword] = useState('');
@@ -40,6 +47,8 @@ export default function AdminPanel({
   const [newUnitName, setNewUnitName] = useState('');
   const [newUnitDesc, setNewUnitDesc] = useState('');
   const [newUnitPrice, setNewUnitPrice] = useState<number>(20);
+  const [newUnitPdfUrl, setNewUnitPdfUrl] = useState<string>('');
+  const [newUnitPdfName, setNewUnitPdfName] = useState<string>('');
 
   // Edit Price States
   const [editingUnitId, setEditingUnitId] = useState<string | null>(null);
@@ -55,12 +64,12 @@ export default function AdminPanel({
   const baseUsers = 184; // seeds registered users
   const baseGuestPurchases = 420;
 
-  // Compute live analytics sums
-  const livePurchaseRevenue = purchases.reduce((sum, p) => sum + p.price, 0);
+  // Compute live analytics sums for APPROVED successful transactions
+  const livePurchaseRevenue = purchases.filter(p => p.status === 'Successful').reduce((sum, p) => sum + p.price, 0);
   const totalRevenue = baseRevenue + livePurchaseRevenue;
-  const totalDownloads = baseDownloads + purchases.length;
-  const totalUsers = baseUsers + Math.floor(purchases.length * 0.35); // simulated ratio
-  const totalGuestPurchases = baseGuestPurchases + purchases.filter(p => p.paymentMethod !== 'Account Sync').length;
+  const totalDownloads = baseDownloads + purchases.filter(p => p.status === 'Successful').length;
+  const totalUsers = baseUsers + Math.floor(purchases.filter(p => p.status === 'Successful').length * 0.35); // simulated ratio
+  const totalGuestPurchases = baseGuestPurchases + purchases.filter(p => p.paymentMethod !== 'Account Sync' && p.status === 'Successful').length;
 
   const handlePasswordSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -80,17 +89,70 @@ export default function AdminPanel({
     }
   };
 
-  const handleCreateUnit = (e: React.FormEvent) => {
+  const handlePdfFileChange = (e: React.ChangeEvent<HTMLInputElement>, isNewUnit: boolean, unitId?: string) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (file.type !== 'application/pdf') {
+      alert('Please select a valid PDF file (.pdf extension only).');
+      return;
+    }
+
+    if (file.size > 25 * 1024 * 1024) {
+      alert('File size too large. Please select a PDF file smaller than 25MB for robust storage.');
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      const base64Data = event.target?.result as string;
+      if (isNewUnit) {
+        setNewUnitPdfUrl(base64Data);
+        setNewUnitPdfName(file.name);
+      } else if (unitId) {
+        try {
+          await savePdf(unitId, base64Data);
+          onUpdateNotePdf(unitId, `indexeddb://${unitId}`, file.name);
+        } catch (dbErr) {
+          console.error("Failed to store PDF in IndexedDB, fallback to state:", dbErr);
+          onUpdateNotePdf(unitId, base64Data, file.name);
+        }
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleCreateUnit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newUnitName.trim() || !newUnitDesc.trim()) return;
 
+    const targetId = `${newUnitExamId.toLowerCase().replace(/_/g, '-')}-unit-${newUnitNum}`;
+    const alreadyExists = notesList.some(item => item.id === targetId);
+    if (alreadyExists) {
+      alert(`⚠️ Conflict Error: A note package with Unit Number "${newUnitNum}" already exists for the "${newUnitExamId}" exam list. Please specify a unique Unit Number.`);
+      return;
+    }
+
+    let finalPdfUrl: string | undefined = undefined;
+    if (newUnitPdfUrl) {
+      try {
+        await savePdf(targetId, newUnitPdfUrl);
+        finalPdfUrl = `indexeddb://${targetId}`;
+      } catch (dbErr) {
+        console.error("Failed to save unit PDF to IndexedDB, fallback to state:", dbErr);
+        finalPdfUrl = newUnitPdfUrl;
+      }
+    }
+
     const mockNewUnit: NotesUnit = {
-      id: `${newUnitExamId.toLowerCase().replace(/_/g, '-')}-unit-${newUnitNum}`,
+      id: targetId,
       examId: newUnitExamId,
       unitNumber: newUnitNum,
       name: `Unit ${newUnitNum}: ${newUnitName}`,
       shortDescription: newUnitDesc,
       price: newUnitPrice,
+      pdfUrl: finalPdfUrl,
+      pdfName: newUnitPdfName || undefined,
       demoPages: [
         {
           pageNumber: 1,
@@ -120,6 +182,8 @@ export default function AdminPanel({
     // reset form
     setNewUnitName('');
     setNewUnitDesc('');
+    setNewUnitPdfUrl('');
+    setNewUnitPdfName('');
     setNewUnitNum(newUnitNum + 1);
   };
 
@@ -423,12 +487,13 @@ export default function AdminPanel({
                   <th className="py-3 text-right">Payment Channel</th>
                   <th className="py-3 text-right">Price</th>
                   <th className="py-3 text-right">Timing</th>
+                  <th className="py-3 text-center">Status / Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-850">
                 {purchases.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="text-center py-12 text-slate-500 font-mono">
+                    <td colSpan={7} className="text-center py-12 text-slate-500 font-mono">
                       No live dynamic transactions logged yet in this session.
                     </td>
                   </tr>
@@ -441,7 +506,7 @@ export default function AdminPanel({
                       p.unitName.toLowerCase().includes(searchQuery.toLowerCase())
                     )
                     .map((p) => (
-                      <tr key={p.orderId} className="hover:bg-slate-850/40">
+                      <tr key={p.orderId} className={`hover:bg-slate-850/40 ${p.status === 'Pending' ? 'bg-amber-500/5' : ''}`}>
                         <td className="py-3 font-mono text-amber-400">{p.orderId}</td>
                         <td className="py-3">
                           <div className="flex flex-col text-left">
@@ -451,12 +516,42 @@ export default function AdminPanel({
                         </td>
                         <td className="py-3 text-slate-200 font-semibold">{p.unitName}</td>
                         <td className="py-3 text-right">
-                          <span className="bg-slate-950 py-1 px-2 rounded-lg border border-slate-800 text-[10px] font-mono text-teal-400">
+                          <span className="bg-slate-950 py-1 px-2.5 rounded-lg border border-slate-800 text-[10px] font-mono text-teal-400 inline-block max-w-[180px] truncate" title={p.paymentMethod}>
                             {p.paymentMethod}
                           </span>
                         </td>
                         <td className="py-3 text-right font-bold text-white">₹{p.price}</td>
                         <td className="py-3 text-right text-slate-500">{new Date(p.timestamp).toLocaleTimeString()}</td>
+                        <td className="py-3">
+                          <div className="flex items-center justify-center space-x-2.5">
+                            {p.status === 'Pending' ? (
+                              <>
+                                <span className="bg-amber-400/10 text-amber-450 border border-amber-400/20 px-1.5 py-0.5 rounded text-[8px] font-mono uppercase tracking-wider animate-pulse">
+                                  Pending
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => onApprovePurchase && onApprovePurchase(p.orderId)}
+                                  className="bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold px-3 py-1 rounded-lg text-[10px] uppercase tracking-wide cursor-pointer active:scale-95 transition-all"
+                                >
+                                  Approve
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => onDeclinePurchase && onDeclinePurchase(p.orderId)}
+                                  className="bg-slate-950 hover:bg-red-950 border border-slate-850 hover:border-red-900 text-slate-450 hover:text-red-400 px-2 py-1 rounded-lg text-[9px] cursor-pointer active:scale-95 transition-all font-mono"
+                                  title="Reject with declination"
+                                >
+                                  Reject
+                                </button>
+                              </>
+                            ) : (
+                              <span className="bg-emerald-500/10 text-emerald-450 border border-emerald-500/25 px-2 py-0.5 rounded-lg text-[9px] font-mono font-bold tracking-wide">
+                                Approved ✅
+                              </span>
+                            )}
+                          </div>
+                        </td>
                       </tr>
                     ))
                 )}
@@ -544,6 +639,30 @@ export default function AdminPanel({
                   />
                 </div>
 
+                <div>
+                  <label className="block text-slate-400 mb-1 font-semibold">Upload Original PDF</label>
+                  <div className="relative border border-dashed border-slate-800 hover:border-slate-700 bg-slate-950 rounded-xl p-3 flex flex-col items-center justify-center text-center cursor-pointer transition-colors">
+                    <input
+                      id="new-unit-pdf-upload"
+                      type="file"
+                      accept="application/pdf"
+                      onChange={(e) => handlePdfFileChange(e, true)}
+                      className="absolute inset-0 opacity-0 w-full h-full cursor-pointer z-10"
+                    />
+                    <div className="flex flex-col items-center space-y-1">
+                      <span className="text-xl">📄</span>
+                      {newUnitPdfName ? (
+                        <span className="text-emerald-400 font-bold truncate max-w-[200px]">{newUnitPdfName}</span>
+                      ) : (
+                        <>
+                          <span className="text-slate-350 font-bold">Select PDF File (Optional)</span>
+                          <span className="text-[10px] text-slate-500">Only PDF up to 25MB</span>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
                 <button
                   id="btn-upload-unit-submit"
                   type="submit"
@@ -593,6 +712,30 @@ export default function AdminPanel({
                           <span className="text-[10px] text-slate-550 truncate max-w-sm font-semibold text-slate-400">{unit.shortDescription}</span>
                         </div>
                         <span className="font-bold text-white truncate text-sm">{unit.name}</span>
+                        
+                        {/* Interactive Original PDF Status and Upload */}
+                        <div className="flex items-center space-x-2.5 mt-1.5 pt-1.5 border-t border-slate-900">
+                          {unit.pdfUrl ? (
+                            <span className="text-[10px] text-emerald-400 font-bold flex items-center space-x-1" title={unit.pdfName}>
+                              <span>📁 PDF Attached:</span>
+                              <span className="truncate max-w-[110px] font-mono underline font-medium">{unit.pdfName || 'Attached.pdf'}</span>
+                            </span>
+                          ) : (
+                            <span className="text-[10px] text-slate-500 font-medium">
+                              ⚠️ No PDF Attached (Fallback reading active)
+                            </span>
+                          )}
+                          
+                          <label className="text-[10px] text-orange-450 hover:text-orange-350 text-orange-400 underline font-extrabold cursor-pointer relative">
+                            <span>Attach/Update PDF</span>
+                            <input
+                              type="file"
+                              accept="application/pdf"
+                              onChange={(e) => handlePdfFileChange(e, false, unit.id)}
+                              className="absolute inset-0 opacity-0 cursor-pointer w-full h-full z-10"
+                            />
+                          </label>
+                        </div>
                       </div>
 
                       <div className="flex items-center space-x-3.5">

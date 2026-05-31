@@ -34,9 +34,23 @@ export default function App() {
         // Sync names and details from fresh NOTES_LIST to handle syllabus updates, but preserve dynamic prices/edits
         const updatedList = NOTES_LIST.map(freshUnit => {
           const savedUnit = parsed.find(item => item.id === freshUnit.id);
-          return savedUnit ? { ...freshUnit, price: savedUnit.price } : freshUnit;
+          return savedUnit ? { ...freshUnit, price: savedUnit.price, pdfUrl: savedUnit.pdfUrl, pdfName: savedUnit.pdfName } : freshUnit;
         });
-        return updatedList;
+        
+        // Include any custom units created by the admin that do not exist natively in statutory NOTES_LIST
+        const customUnits = parsed.filter(item => !NOTES_LIST.some(fresh => fresh.id === item.id));
+        
+        // Fully deduplicate elements to make absolutely certain no key collides
+        const combined = [...updatedList, ...customUnits];
+        const uniqueList: NotesUnit[] = [];
+        const seenIds = new Set<string>();
+        for (const item of combined) {
+          if (!seenIds.has(item.id)) {
+            seenIds.add(item.id);
+            uniqueList.push(item);
+          }
+        }
+        return uniqueList;
       } catch (e) {
         return NOTES_LIST;
       }
@@ -73,7 +87,14 @@ export default function App() {
         timestamp: new Date(Date.now() - 3600000 * 18).toISOString()
       }
     ];
-    return saved ? JSON.parse(saved) : baseList;
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch (e) {
+        return baseList;
+      }
+    }
+    return baseList;
   });
 
   const [queries, setQueries] = useState<ContactQuery[]>(() => {
@@ -98,17 +119,32 @@ export default function App() {
         replied: true
       }
     ];
-    return saved ? JSON.parse(saved) : baseQueries;
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch (e) {
+        return baseQueries;
+      }
+    }
+    return baseQueries;
   });
 
   const [user, setUser] = useState<UserSession>(() => {
     const saved = localStorage.getItem('hsn_user_session');
-    return saved ? JSON.parse(saved) : {
+    const defaultSession: UserSession = {
       name: '',
       email: '',
       isLoggedIn: false,
       purchasedUnitIds: [] // list of purchased notes IDs
     };
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch (e) {
+        return defaultSession;
+      }
+    }
+    return defaultSession;
   });
 
   // UI Interactive States
@@ -152,6 +188,43 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem('hsn_user_session', JSON.stringify(user));
   }, [user]);
+
+  // Self-healing migration to move raw base64 PDFs from localStorage into modern high-quota IndexedDB storage
+  useEffect(() => {
+    let active = true;
+    const migrateBase64ToIndexedDB = async () => {
+      let changed = false;
+      try {
+        const updatedList = await Promise.all(
+          notesList.map(async (unit) => {
+            if (unit.pdfUrl && unit.pdfUrl.startsWith('data:application/pdf;base64,')) {
+              try {
+                const { savePdf } = await import('./utils/pdfStorage');
+                await savePdf(unit.id, unit.pdfUrl);
+                changed = true;
+                return { ...unit, pdfUrl: `indexeddb://${unit.id}` };
+              } catch (err) {
+                console.error('Migration failed for unit:', unit.id, err);
+              }
+            }
+            return unit;
+          })
+        );
+
+        if (changed && active) {
+          setNotesList(updatedList);
+          showToast('Local database healed and optimized for high-capacity storage.', 'info');
+        }
+      } catch (err) {
+        console.error('Self-healing migration encountered an error:', err);
+      }
+    };
+
+    migrateBase64ToIndexedDB();
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const showToast = (message: string, type: 'success' | 'info' = 'success') => {
     setToastMessage(message);
@@ -222,24 +295,24 @@ export default function App() {
     // Add transaction to main purchases array
     setPurchases((prev) => [record, ...prev]);
 
-    // If logged in, sync to library
-    if (user.isLoggedIn) {
-      setUser((prev) => ({
-        ...prev,
-        purchasedUnitIds: [...prev.purchasedUnitIds, record.unitId]
-      }));
+    // If logged in and the purchase is already Successful (e.g. sandbox bypass), sync to library
+    if (record.status === 'Successful') {
+      if (user.isLoggedIn) {
+        setUser((prev) => ({
+          ...prev,
+          purchasedUnitIds: Array.from(new Set([...prev.purchasedUnitIds, record.unitId]))
+        }));
+      } else {
+        localStorage.setItem(`guest_unlocked_${record.unitId}`, 'true');
+      }
+      showToast(`Purchased successfully! ${record.unitName} unlocked.`, 'success');
+      
+      const noteObj = notesList.find(n => n.id === record.unitId);
+      if (noteObj) {
+        setActiveReaderUnit(noteObj);
+      }
     } else {
-      // For guests, we can also store their purchase locally so they do not lose it on reloading the tab
-      // We will add it to a temporary guest registry or log their email profile
-      localStorage.setItem(`guest_unlocked_${record.unitId}`, 'true');
-    }
-
-    showToast(`Purchased successfully! ${record.unitName} unlocked.`, 'success');
-    
-    // Auto launch note viewing right after purchase!
-    const noteObj = notesList.find(n => n.id === record.unitId);
-    if (noteObj) {
-      setActiveReaderUnit(noteObj);
+      showToast(`UTR details recorded securely. Awaiting admin verification approval.`, 'info');
     }
   };
 
@@ -271,10 +344,22 @@ export default function App() {
 
   // check if a unit is unlocked for current student context
   const isUnitUnlocked = (unitId: string): boolean => {
+    // 1. If any purchase for this unit has status 'Pending', block access immediately!
+    const anyPending = purchases.some((p) => p.unitId === unitId && p.status === 'Pending');
+    if (anyPending) {
+      return false;
+    }
+
+    // 2. If there's an approved purchase for this unit in the purchases array, let them in!
+    const isApprovedInState = purchases.some((p) => p.unitId === unitId && p.status === 'Successful');
+    if (isApprovedInState) {
+      return true;
+    }
+
+    // 3. Fallback check for session library or localStorage keys
     if (user.isLoggedIn) {
       return user.purchasedUnitIds.includes(unitId);
     }
-    // Check local guest storage fallback
     return localStorage.getItem(`guest_unlocked_${unitId}`) === 'true';
   };
 
@@ -286,8 +371,20 @@ export default function App() {
     showToast('Inventory unit price updated successfully.', 'success');
   };
 
+  const handleUpdateNotePdf = (unitId: string, pdfUrl: string, pdfName: string) => {
+    setNotesList((prevList) =>
+      prevList.map((unit) => (unit.id === unitId ? { ...unit, pdfUrl, pdfName } : unit))
+    );
+    showToast('Original scanned PDF successfully attached!', 'success');
+  };
+
   const handleAddNewUnit = (newUnit: NotesUnit) => {
-    setNotesList((prev) => [...prev, newUnit]);
+    setNotesList((prev) => {
+      if (prev.some(u => u.id === newUnit.id)) {
+        return prev;
+      }
+      return [...prev, newUnit];
+    });
     showToast('New handwritten PDF package registered.', 'success');
   };
 
@@ -301,6 +398,38 @@ export default function App() {
       prev.map((q) => (q.id === queryId ? { ...q, replied: true } : q))
     );
     showToast('Simulated response dispatched to student email inbox.', 'success');
+  };
+
+  const handleApprovePurchase = (orderId: string) => {
+    setPurchases((prev) =>
+      prev.map((p) => {
+        if (p.orderId === orderId) {
+          const updated = { ...p, status: 'Successful' as const };
+          
+          if (user.isLoggedIn && p.email.toLowerCase() === user.email.toLowerCase()) {
+            setUser((curr) => ({
+              ...curr,
+              purchasedUnitIds: Array.from(new Set([...curr.purchasedUnitIds, p.unitId]))
+            }));
+          } else {
+            localStorage.setItem(`guest_unlocked_${p.unitId}`, 'true');
+          }
+          
+          return updated;
+        }
+        return p;
+      })
+    );
+    showToast(`Order ${orderId} has been successfully verified & notes unlocked.`, 'success');
+  };
+
+  const handleDeclinePurchase = (orderId: string) => {
+    const purchaseObj = purchases.find((p) => p.orderId === orderId);
+    if (purchaseObj) {
+      localStorage.removeItem(`guest_unlocked_${purchaseObj.unitId}`);
+    }
+    setPurchases((prev) => prev.filter((p) => p.orderId !== orderId));
+    showToast(`Order ${orderId} has been declined & discarded.`, 'info');
   };
 
   return (
@@ -1009,9 +1138,12 @@ export default function App() {
             queries={queries}
             notesList={notesList}
             onUpdateNotePrice={handleUpdatePrice}
+            onUpdateNotePdf={handleUpdateNotePdf}
             onAddNewUnit={handleAddNewUnit}
             onRemoveUnit={handleRemoveUnit}
             onAnswerQuery={handleAnswerQuery}
+            onApprovePurchase={handleApprovePurchase}
+            onDeclinePurchase={handleDeclinePurchase}
           />
         )}
 

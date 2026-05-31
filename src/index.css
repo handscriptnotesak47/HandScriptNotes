@@ -40,3 +40,46 @@
   background-size: 1.5rem 1.5rem;
 }
 
+/* @media print modifications for pristine document print fallback */
+@media print {
+  /* Hide UI elements, overlays, sidebar panels, backgrounds and action keys */
+  nav, 
+  header, 
+  footer, 
+  button, 
+  label, 
+  #auth-modal-overlay, 
+  #auth-box, 
+  .p-4.bg-slate-900.border-b,
+  .flex.items-center.space-x-2,
+  .flex.items-center.space-x-3.justify-center,
+  .absolute.left-2.top-8,
+  .absolute.left-3,
+  .cursor-pointer,
+  input,
+  select,
+  textarea,
+  .z-25.pointer-events-none,
+  .absolute.right-2 {
+    display: none !important;
+  }
+
+  body {
+    background: #ffffff !important;
+    color: #000000 !important;
+  }
+
+  /* Make notebook page full width and hide shadows and dark frames */
+  .ruled-paper, 
+  .relative.bg-\[\#faf7ef\] {
+    background-color: #faf7ef !important;
+    border: none !important;
+    box-shadow: none !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+}
+
+

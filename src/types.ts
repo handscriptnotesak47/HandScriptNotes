@@ -35,6 +35,8 @@ export interface NotesUnit {
   price: number; // e.g. 20 (₹20)
   demoPages: HandwrittenPage[];
   fullPages: HandwrittenPage[];
+  pdfUrl?: string;
+  pdfName?: string;
 }
 
 export interface PurchaseRecord {
