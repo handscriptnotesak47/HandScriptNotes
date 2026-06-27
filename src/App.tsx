@@ -494,7 +494,7 @@ export default function App() {
                   <div className="inline-flex items-center space-x-2 bg-amber-500/10 px-4 py-2 rounded-full border border-amber-500/20 shadow-sm">
                     <Star className="h-4.5 w-4.5 text-amber-600 fill-amber-500 animate-spin-slow" />
                     <span className="text-xs font-bold text-amber-800 tracking-wide font-sans">
-                      100% Student-Verified Notes by Toppers
+                      100% Student-Verified Handwritten Notes by Toppers
                     </span>
                   </div>
 
@@ -1272,7 +1272,7 @@ export default function App() {
           <div className="space-y-3.5 col-span-1 md:col-span-2">
             <div className="flex items-center space-x-2.5">
               <BookOpen className="h-5 w-5 text-brand-orange" />
-              <span className="font-display font-extrabold text-white text-base tracking-wide uppercase">
+              <span className="font-display font-extrabold text-white text-base tracking-wide uppercase italic">
                 HandScript Notes
               </span>
             </div>

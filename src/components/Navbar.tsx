@@ -46,10 +46,10 @@ export default function Navbar({ activeTab, setActiveTab, user, onLogout, onOpen
             
             <div className="flex flex-col">
               <div className="flex items-center">
-                <span className="font-display font-extrabold text-2xl tracking-normal text-slate-900">
+                <span className="font-display font-extrabold text-2xl tracking-normal text-slate-900 italic">
                   HandScript
                 </span>
-                <span className="font-display font-extrabold text-2xl tracking-normal text-brand-orange ml-1">
+                <span className="font-display font-extrabold text-2xl tracking-normal text-brand-orange ml-1 italic">
                   Notes
                 </span>
                 <span className="ml-2 font-mono text-[10px] bg-slate-100 text-amber-600 px-1.5 py-0.5 rounded border border-slate-200 font-bold hidden sm:inline">
