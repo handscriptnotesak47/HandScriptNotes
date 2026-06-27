@@ -1,6 +1,5 @@
 import express from 'express';
 import path from 'path';
-import { createServer as createViteServer } from 'vite';
 
 async function startServer() {
   const app = express();
@@ -19,6 +18,7 @@ async function startServer() {
   // Serve static files and handle routing depending on environment
   if (process.env.NODE_ENV !== 'production') {
     console.log('Running in DEVELOPMENT mode with Vite middleware');
+    const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: 'spa',
