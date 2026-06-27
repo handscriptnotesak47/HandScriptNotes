@@ -1272,7 +1272,7 @@ export default function App() {
           <div className="space-y-3.5 col-span-1 md:col-span-2">
             <div className="flex items-center space-x-2.5">
               <BookOpen className="h-5 w-5 text-brand-orange" />
-              <span className="font-display font-extrabold text-white text-base tracking-wide uppercase italic">
+              <span className="font-display font-extrabold text-white text-base tracking-wide uppercase">
                 HandScript Notes
               </span>
             </div>
