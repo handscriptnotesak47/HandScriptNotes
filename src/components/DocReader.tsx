@@ -16,15 +16,34 @@ interface DocReaderProps {
 }
 
 export default function DocReader({ unit, isUnlocked, onBuy, onClose }: DocReaderProps) {
+  const isPedagogy1 = unit.examId === 'RSMSSB_BCI' && unit.unitNumber === 1;
   const [currentPageIndex, setCurrentPageIndex] = useState(0);
-  const [viewMode, setViewMode] = useState<'scan' | 'pdf'>('scan'); // Default to beautiful photorealistic scan!
+  const [viewMode, setViewMode] = useState<'scan' | 'pdf'>(
+    (isPedagogy1 && isUnlocked) ? 'pdf' : 'scan'
+  );
   const [renderedPdfUrl, setRenderedPdfUrl] = useState<string>('');
   const [pdfError, setPdfError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!unit.pdfUrl) {
-      setRenderedPdfUrl('');
-      setPdfError(null);
+      if (isPedagogy1 && isUnlocked) {
+        try {
+          const htmlContent = getOfflineHTMLContent();
+          const blob = new Blob([htmlContent], { type: 'text/html' });
+          const blobUrl = URL.createObjectURL(blob);
+          setRenderedPdfUrl(blobUrl);
+          setPdfError(null);
+          return () => {
+            URL.revokeObjectURL(blobUrl);
+          };
+        } catch (err: any) {
+          console.error('Failed to generate offline HTML for pedagogy unit:', err);
+          setPdfError('Failed to generate offline HTML view.');
+        }
+      } else {
+        setRenderedPdfUrl('');
+        setPdfError(null);
+      }
       return;
     }
 
@@ -82,14 +101,12 @@ export default function DocReader({ unit, isUnlocked, onBuy, onClose }: DocReade
         URL.revokeObjectURL(objectUrl);
       }
     };
-  }, [unit.pdfUrl, unit.id]);
+  }, [unit.pdfUrl, unit.id, isUnlocked]);
 
   const pages = isUnlocked ? unit.fullPages : unit.demoPages;
   const totalPages = pages.length;
 
   const pageInfo = pages[currentPageIndex] || pages[0];
-
-  const isPedagogy1 = (unit.examId === 'RSMSSB_BCI' || unit.examId === 'RSMSSB_SCI') && unit.unitNumber === 1;
 
   // Sync index when unlocked, to maintain reading context
   useEffect(() => {
@@ -116,7 +133,7 @@ export default function DocReader({ unit, isUnlocked, onBuy, onClose }: DocReade
     }
   };
 
-  const getOfflineHTMLContent = () => {
+  function getOfflineHTMLContent() {
     // Generate beautiful styling and all pages
     const compiledPagesHTML = pages.map((page, pIdx) => {
       // Compile paragraphs for this page

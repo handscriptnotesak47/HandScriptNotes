@@ -926,29 +926,42 @@ export default function App() {
                             <span>Read Unlocked Pages</span>
                           </button>
                         ) : (
-                          <div className="grid grid-cols-2 gap-2 font-bold select-none">
-                            <button
-                              id={`btn-view-demo-${unit.id}`}
-                              onClick={() => {
-                                // launches doc reader in free demo mode!
-                                setActiveReaderUnit(unit);
-                              }}
-                              className="bg-slate-50 border border-slate-200 text-slate-700 hover:text-slate-900 hover:bg-slate-100 py-2.5 rounded-xl flex items-center justify-center space-x-1 cursor-pointer transition-colors shadow-sm"
-                            >
-                              <BookOpen className="h-4 w-4" />
-                              <span>Free Demo</span>
-                            </button>
+                          unit.id === 'rsmssb_bci-unit-1' ? (
                             <button
                               id={`btn-buy-now-${unit.id}`}
                               onClick={() => {
                                 setActiveCheckoutUnit(unit);
                               }}
-                              className="bg-brand-orange hover:bg-brand-orange-hover text-white py-2.5 rounded-xl flex items-center justify-center space-x-1 cursor-pointer shadow-lg shadow-brand-orange/15 transition-transform group-hover:scale-[1.02]"
+                              className="w-full bg-brand-orange hover:bg-brand-orange-hover text-white py-2.5 rounded-xl flex items-center justify-center space-x-1.5 cursor-pointer shadow-lg shadow-brand-orange/15 transition-all font-bold"
                             >
                               <Lock className="h-4 w-4" />
-                              <span>Buy Unit</span>
+                              <span>Buy Unit & Open PDF (₹20)</span>
                             </button>
-                          </div>
+                          ) : (
+                            <div className="grid grid-cols-2 gap-2 font-bold select-none">
+                              <button
+                                id={`btn-view-demo-${unit.id}`}
+                                onClick={() => {
+                                  // launches doc reader in free demo mode!
+                                  setActiveReaderUnit(unit);
+                                }}
+                                className="bg-slate-50 border border-slate-200 text-slate-700 hover:text-slate-900 hover:bg-slate-100 py-2.5 rounded-xl flex items-center justify-center space-x-1 cursor-pointer transition-colors shadow-sm"
+                              >
+                                <BookOpen className="h-4 w-4" />
+                                <span>Free Demo</span>
+                              </button>
+                              <button
+                                id={`btn-buy-now-${unit.id}`}
+                                onClick={() => {
+                                  setActiveCheckoutUnit(unit);
+                                }}
+                                className="bg-brand-orange hover:bg-brand-orange-hover text-white py-2.5 rounded-xl flex items-center justify-center space-x-1 cursor-pointer shadow-lg shadow-brand-orange/15 transition-transform group-hover:scale-[1.02]"
+                              >
+                                <Lock className="h-4 w-4" />
+                                <span>Buy Unit</span>
+                              </button>
+                            </div>
+                          )
                         )}
                       </div>
                     </div>

@@ -1148,7 +1148,7 @@ export const generateNotesList = (): NotesUnit[] => {
       const unitNum = idx + 1;
       const unitId = `${examId.toLowerCase().replace(/_/g, '-')}-unit-${unitNum}`;
       
-      const isPedagogy1 = (examId === 'RSMSSB_BCI' || examId === 'RSMSSB_SCI') && unitNum === 1;
+      const isPedagogy1 = examId === 'RSMSSB_BCI' && unitNum === 1;
 
       list.push({
         id: unitId,
