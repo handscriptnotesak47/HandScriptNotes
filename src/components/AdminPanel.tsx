@@ -13,7 +13,7 @@ interface AdminPanelProps {
   queries: ContactQuery[];
   notesList: NotesUnit[];
   onUpdateNotePrice: (unitId: string, newPrice: number) => void;
-  onUpdateNotePdf: (unitId: string, pdfUrl: string, pdfName: string) => void;
+  onUpdateNotePdf: (unitId: string, pdfUrl: string, pdfName: string, pdfData?: string) => void;
   onAddNewUnit: (newUnit: NotesUnit) => void;
   onRemoveUnit: (unitId: string) => void;
   onAnswerQuery: (queryId: string) => void;
@@ -112,10 +112,10 @@ export default function AdminPanel({
       } else if (unitId) {
         try {
           await savePdf(unitId, base64Data);
-          onUpdateNotePdf(unitId, `indexeddb://${unitId}`, file.name);
+          onUpdateNotePdf(unitId, `indexeddb://${unitId}`, file.name, base64Data);
         } catch (dbErr) {
           console.error("Failed to store PDF in IndexedDB, fallback to state:", dbErr);
-          onUpdateNotePdf(unitId, base64Data, file.name);
+          onUpdateNotePdf(unitId, base64Data, file.name, base64Data);
         }
       }
     };
@@ -652,7 +652,10 @@ export default function AdminPanel({
                     <div className="flex flex-col items-center space-y-1">
                       <span className="text-xl">📄</span>
                       {newUnitPdfName ? (
-                        <span className="text-emerald-400 font-bold truncate max-w-[200px]">{newUnitPdfName}</span>
+                        <div className="flex flex-col items-center space-y-0.5">
+                          <span className="text-emerald-400 font-extrabold text-xs bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-0.5 rounded-full">Uploaded ✅</span>
+                          <span className="text-[10px] text-slate-400 truncate max-w-[180px]" title={newUnitPdfName}>{newUnitPdfName}</span>
+                        </div>
                       ) : (
                         <>
                           <span className="text-slate-350 font-bold">Select PDF File (Optional)</span>
@@ -716,13 +719,18 @@ export default function AdminPanel({
                         {/* Interactive Original PDF Status and Upload */}
                         <div className="flex items-center space-x-2.5 mt-1.5 pt-1.5 border-t border-slate-900">
                           {unit.pdfUrl ? (
-                            <span className="text-[10px] text-emerald-400 font-bold flex items-center space-x-1" title={unit.pdfName}>
-                              <span>📁 PDF Attached:</span>
-                              <span className="truncate max-w-[110px] font-mono underline font-medium">{unit.pdfName || 'Attached.pdf'}</span>
-                            </span>
+                            <div className="flex items-center space-x-2">
+                              <span className="text-[9px] bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 px-1.5 py-0.5 rounded-md font-extrabold tracking-wide uppercase select-none">
+                                Uploaded ✅
+                              </span>
+                              <span className="text-[10px] text-slate-400 font-medium flex items-center space-x-1 max-w-[140px] truncate" title={unit.pdfName}>
+                                <span>File:</span>
+                                <span className="truncate font-mono underline font-medium">{unit.pdfName || 'Attached.pdf'}</span>
+                              </span>
+                            </div>
                           ) : (
-                            <span className="text-[10px] text-slate-500 font-medium">
-                              ⚠️ No PDF Attached (Fallback reading active)
+                            <span className="text-[10px] text-slate-500 font-medium bg-slate-900 border border-slate-800 px-1.5 py-0.5 rounded-md">
+                              ⚠️ No PDF Attached (Demo reading active)
                             </span>
                           )}
                           

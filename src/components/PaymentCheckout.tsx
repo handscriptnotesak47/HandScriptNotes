@@ -173,43 +173,93 @@ export default function PaymentCheckout({ unit, user, onPaymentSuccess, onClose 
         return;
       }
 
-      // Read Razorpay Key ID from Vite environment metadata or use standard sandbox testing key
-      const razorpayKey = ((import.meta as any).env?.VITE_RAZORPAY_KEY_ID as string) || 'rzp_test_pG88bUfX6p1Xbe';
-      const orderId = `HSN-TX-${Math.floor(100000 + Math.random() * 900000)}`;
       const payerName = user.isLoggedIn ? user.name : guestName || 'Student Guest';
       const payerEmail = user.isLoggedIn ? user.email : guestEmail || 'guest@handscript.com';
 
+      // 1. Create order on Express backend first
+      const amountPaise = Math.round(unit.price * 100);
+      const orderResponse = await fetch('/api/create-order', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          amount: amountPaise,
+          currency: 'INR',
+          receipt: `receipt_${unit.id}_${Date.now()}`
+        }),
+      });
+
+      if (!orderResponse.ok) {
+        const errData = await orderResponse.json().catch(() => ({}));
+        throw new Error(errData.error || 'Server failed to generate a secure Razorpay Order ID.');
+      }
+
+      const orderData = await orderResponse.json();
+      const razorpayOrderId = orderData.order_id;
+
+      // Read Razorpay Key ID from Vite environment metadata or use standard sandbox testing key
+      const razorpayKey = ((import.meta as any).env?.VITE_RAZORPAY_KEY_ID as string) || 'rzp_test_T6hjycCqpGUq5P';
+
       const options = {
         key: razorpayKey,
-        amount: Math.round(unit.price * 100), // in paise (e.g. INR 49.00 = 4900 paise)
-        currency: 'INR',
+        amount: orderData.amount,
+        currency: orderData.currency || 'INR',
         name: 'HandScript Notes',
         description: `Unlock Notes: ${unit.name}`,
         image: 'https://images.unsplash.com/photo-1544716278-ca5e3f4abd8c?auto=format&fit=crop&w=120&h=120&q=80',
-        handler: function (response: any) {
+        order_id: razorpayOrderId,
+        handler: async function (response: any) {
           setIsRazorpayLoading(false);
           setStep('processing');
           
-          const razorpayRef = response.razorpay_payment_id || `RZP${Math.floor(100000500 + Math.random() * 899999500)}`;
-          setGeneratedRefId(razorpayRef);
+          try {
+            // 2. Verify payment signature on the backend
+            const verifyResponse = await fetch('/api/verify-payment', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                razorpay_order_id: response.razorpay_order_id,
+                razorpay_payment_id: response.razorpay_payment_id,
+                razorpay_signature: response.razorpay_signature,
+              }),
+            });
 
-          setTimeout(() => {
-            const record: PurchaseRecord = {
-              orderId,
-              name: payerName,
-              email: payerEmail.toLowerCase(),
-              unitId: unit.id,
-              unitName: unit.name,
-              examId: unit.examId,
-              price: unit.price,
-              status: 'Successful',
-              paymentMethod: `Razorpay Online Gateway (Payment Id: ${razorpayRef})`,
-              timestamp: new Date().toISOString()
-            };
+            if (!verifyResponse.ok) {
+              const verifyErrData = await verifyResponse.json().catch(() => ({}));
+              throw new Error(verifyErrData.error || 'Signature verification failed.');
+            }
 
-            onPaymentSuccess(record);
-            setStep('success');
-          }, 1200);
+            const verifyResult = await verifyResponse.json();
+            if (verifyResult.success) {
+              const razorpayRef = response.razorpay_payment_id;
+              setGeneratedRefId(razorpayRef);
+
+              const record: PurchaseRecord = {
+                orderId: razorpayOrderId,
+                name: payerName,
+                email: payerEmail.toLowerCase(),
+                unitId: unit.id,
+                unitName: unit.name,
+                examId: unit.examId,
+                price: unit.price,
+                status: 'Successful',
+                paymentMethod: `Razorpay Online Gateway (Payment Id: ${razorpayRef})`,
+                timestamp: new Date().toISOString()
+              };
+
+              onPaymentSuccess(record);
+              setStep('success');
+            } else {
+              throw new Error('Payment verification server rejected signature validation.');
+            }
+          } catch (verifyErr: any) {
+            console.error('Payment verification error:', verifyErr);
+            setErrorMessage(`🔴 Payment Verification Failed: ${verifyErr?.message || 'Invalid signature'}`);
+            setStep('method');
+          }
         },
         prefill: {
           name: payerName,
@@ -235,7 +285,7 @@ export default function PaymentCheckout({ unit, user, onPaymentSuccess, onClose 
       rzp.open();
     } catch (err: any) {
       console.error('Razorpay Modal error:', err);
-      setErrorMessage(`🔴 Razorpay error: ${err?.message || 'Failed to initialize'}`);
+      setErrorMessage(`🔴 Razorpay error: ${err?.message || 'Failed to initialize order creation'}`);
       setIsRazorpayLoading(false);
     }
   };

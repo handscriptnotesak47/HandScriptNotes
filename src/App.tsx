@@ -177,6 +177,23 @@ export default function App() {
     localStorage.setItem('hsn_notes_list', JSON.stringify(notesList));
   }, [notesList]);
 
+  // Load live notes list from Express server database
+  useEffect(() => {
+    fetch('/api/notes')
+      .then((res) => {
+        if (!res.ok) throw new Error('Live database fetch failed');
+        return res.json();
+      })
+      .then((data) => {
+        if (Array.isArray(data) && data.length > 0) {
+          setNotesList(data);
+        }
+      })
+      .catch((err) => {
+        console.warn('Backend not yet reachable or in build phase, using local persistent cache instead:', err);
+      });
+  }, []);
+
   useEffect(() => {
     localStorage.setItem('hsn_purchases', JSON.stringify(purchases));
   }, [purchases]);
@@ -368,14 +385,52 @@ export default function App() {
     setNotesList((prevList) => 
       prevList.map((unit) => (unit.id === unitId ? { ...unit, price: newPrice } : unit))
     );
+
+    fetch('/api/notes/update-price', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ unitId, price: newPrice })
+    })
+    .then(res => res.json())
+    .then(data => {
+      if (data.success && data.notes) {
+        setNotesList(data.notes);
+      }
+    })
+    .catch(err => console.error('Failed to sync price update to server:', err));
+
     showToast('Inventory unit price updated successfully.', 'success');
   };
 
-  const handleUpdateNotePdf = (unitId: string, pdfUrl: string, pdfName: string) => {
+  const handleUpdateNotePdf = (unitId: string, pdfUrl: string, pdfName: string, pdfData?: string) => {
+    // Optimistic local state update
     setNotesList((prevList) =>
       prevList.map((unit) => (unit.id === unitId ? { ...unit, pdfUrl, pdfName } : unit))
     );
-    showToast('Original scanned PDF successfully attached!', 'success');
+
+    if (pdfData) {
+      showToast('Uploading PDF to Hostinger live server...', 'info');
+      fetch('/api/notes/update-pdf', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ unitId, pdfName, pdfData })
+      })
+      .then(res => res.json())
+      .then(data => {
+        if (data.success && data.notes) {
+          setNotesList(data.notes);
+          showToast(`PDF uploaded successfully! Saved live as: ${data.pdfName}`, 'success');
+        } else {
+          showToast('Failed to save PDF on server disk.', 'info');
+        }
+      })
+      .catch(err => {
+        console.error('Failed to upload PDF to server:', err);
+        showToast('Error uploading PDF to server. Saved locally only.', 'info');
+      });
+    } else {
+      showToast('Original scanned PDF successfully attached!', 'success');
+    }
   };
 
   const handleAddNewUnit = (newUnit: NotesUnit) => {
@@ -385,11 +440,39 @@ export default function App() {
       }
       return [...prev, newUnit];
     });
+
+    fetch('/api/notes/add-unit', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ unit: newUnit })
+    })
+    .then(res => res.json())
+    .then(data => {
+      if (data.success && data.notes) {
+        setNotesList(data.notes);
+      }
+    })
+    .catch(err => console.error('Failed to sync new unit to server:', err));
+
     showToast('New handwritten PDF package registered.', 'success');
   };
 
   const handleRemoveUnit = (unitId: string) => {
     setNotesList((prev) => prev.filter(u => u.id !== unitId));
+
+    fetch('/api/notes/remove-unit', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ unitId })
+    })
+    .then(res => res.json())
+    .then(data => {
+      if (data.success && data.notes) {
+        setNotesList(data.notes);
+      }
+    })
+    .catch(err => console.error('Failed to remove unit from server:', err));
+
     showToast('Inventory item deleted.', 'info');
   };
 
