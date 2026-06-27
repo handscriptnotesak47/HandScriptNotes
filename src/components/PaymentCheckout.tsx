@@ -400,7 +400,7 @@ export default function PaymentCheckout({ unit, user, onPaymentSuccess, onClose 
 
           {/* STEP 2: UPI Selection and Direct QR Payment */}
           {step === 'method' && (
-            <div className="space-y-4 text-left">
+            <div className="space-y-4 text-left animate-fadeIn">
               <div className="flex items-center space-x-1.5 mb-1.5 pb-2.5 border-b border-zinc-100">
                 <button 
                   type="button"
@@ -415,8 +415,8 @@ export default function PaymentCheckout({ unit, user, onPaymentSuccess, onClose 
                 </div>
               </div>
 
-              {/* Seamless payment routing channels */}
-              <div className="grid grid-cols-4 gap-1.5">
+              {/* Seamless payment routing channels (Excluding Manual UPI as requested) */}
+              <div className="grid grid-cols-3 gap-1.5">
                 <button
                   id="tab-pay-razorpay"
                   type="button"
@@ -455,19 +455,6 @@ export default function PaymentCheckout({ unit, user, onPaymentSuccess, onClose 
                 >
                   <Smartphone className="h-4 w-4 mb-1 text-purple-600" />
                   <span className="text-[9px] font-bold text-center tracking-tight">UPI App</span>
-                </button>
-                <button
-                  id="tab-pay-manual"
-                  type="button"
-                  onClick={() => setPaymentMethod('manual')}
-                  className={`flex flex-col items-center justify-center py-2 px-1 rounded-xl border transition-all cursor-pointer ${
-                    paymentMethod === 'manual'
-                      ? 'border-emerald-600 bg-emerald-50/20 text-emerald-700 font-bold'
-                      : 'border-slate-200 bg-white text-slate-500 hover:text-slate-800'
-                  }`}
-                >
-                  <CreditCard className="h-4 w-4 mb-1 text-emerald-600" />
-                  <span className="text-[9px] font-bold text-center tracking-tight">Manual UPI</span>
                 </button>
               </div>
 
@@ -529,28 +516,27 @@ export default function PaymentCheckout({ unit, user, onPaymentSuccess, onClose 
                 </div>
               )}
 
-              {/* A. UPI SCAN QR INTERFACE — Beautiful High Fidelity Replica modeled after User PhonePe QR Page */}
+              {/* A. UPI SCAN QR INTERFACE — Beautiful PhonePe QR Page */}
               {paymentMethod === 'upi_qr' && (
-                <div className="space-y-4">
+                <div className="space-y-4 animate-fadeIn">
                   {/* PhonePe Screen Replica Shell */}
                   <div className="bg-[#111] text-white rounded-2xl p-4 shadow-xl border border-zinc-800 select-none">
                     
                     {/* Header: Bank of Baroda - 7516 */}
-                    <div className="flex items-center justify-between pb-3.5 border-b border-zinc-805">
+                    <div className="flex items-center justify-between pb-3.5 border-b border-zinc-800">
                       <div className="flex items-center space-x-2.5">
-                        {/* Custom Bob logo */}
                         <div className="w-8 h-8 rounded-full bg-orange-600 text-white flex items-center justify-center text-xs font-black font-sans shadow-md">
                           B
                         </div>
                         <div className="text-left font-sans">
                           <span className="text-xs font-black block tracking-wide text-zinc-100">Bank Of Baroda - 7516</span>
-                          <span className="text-[9px] text-zinc-400 font-mono tracking-wider block">PRIMARY ACCOUNT linked</span>
+                          <span className="text-[9px] text-zinc-400 font-mono tracking-wider block font-bold">PRIMARY ACCOUNT linked</span>
                         </div>
                       </div>
                       
                       {/* Swipe Dots Indicator */}
                       <div className="flex space-x-1.5">
-                        <div className="w-1.5 h-1.5 rounded-full bg-zinc-650"></div>
+                        <div className="w-1.5 h-1.5 rounded-full bg-zinc-600"></div>
                         <div className="w-1.5 h-1.5 rounded-full bg-white"></div>
                       </div>
                     </div>
@@ -558,7 +544,6 @@ export default function PaymentCheckout({ unit, user, onPaymentSuccess, onClose 
                     {/* QR Code Container styled with crisp centering */}
                     <div className="my-5 flex flex-col items-center justify-center relative">
                       <div className="bg-white p-4 rounded-2xl shadow-inner relative inline-block border border-zinc-200">
-                        {/* Interactive Merchant QR */}
                         <img 
                           src={qrCodeUrl} 
                           alt="Payee UPI QR Code" 
@@ -566,9 +551,9 @@ export default function PaymentCheckout({ unit, user, onPaymentSuccess, onClose 
                           className="w-48 h-48 block rounded-lg bg-white"
                         />
                         
-                        {/* Custom PhonePe "Pe" Badge Overlay Logo exactly in the center of QR code */}
+                        {/* Custom PhonePe "Pe" Badge Overlay Logo */}
                         <div className="absolute inset-0 m-auto w-10 h-10 bg-white border-2 border-slate-200 shadow rounded-full flex items-center justify-center">
-                          <div className="w-7 h-7 bg-purple-700 text-white rounded-full flex items-center justify-center text-xs font-black font-semibold">
+                          <div className="w-7 h-7 bg-purple-700 text-white rounded-full flex items-center justify-center text-xs font-black">
                             पे
                           </div>
                         </div>
@@ -584,7 +569,7 @@ export default function PaymentCheckout({ unit, user, onPaymentSuccess, onClose 
                       <button
                         type="button"
                         onClick={handleCopyUpi}
-                        className="bg-zinc-800 hover:bg-zinc-700 active:scale-95 text-xs text-white px-3 py-1.5 rounded-lg font-bold flex items-center space-x-1 transition-all cursor-pointer border border-zinc-750"
+                        className="bg-zinc-800 hover:bg-zinc-700 active:scale-95 text-xs text-white px-3 py-1.5 rounded-lg font-bold flex items-center space-x-1 transition-all cursor-pointer border border-zinc-700"
                       >
                         <Copy className="h-3 w-3" />
                         <span>{copied ? 'Copied!' : 'Copy'}</span>
@@ -604,8 +589,8 @@ export default function PaymentCheckout({ unit, user, onPaymentSuccess, onClose 
 
                   </div>
 
-                  {/* Immediate step-by-step guidance block */}
-                  <div className="bg-indigo-50/40 border border-indigo-100 rounded-xl p-3 text-xs text-slate-705 leading-relaxed space-y-1 text-left font-medium">
+                  {/* step-by-step guidance block */}
+                  <div className="bg-indigo-50/40 border border-indigo-100 rounded-xl p-3 text-xs text-slate-700 leading-relaxed space-y-1 text-left font-medium">
                     <div className="flex items-start space-x-1.5">
                       <span className="text-indigo-600 font-bold">1.</span>
                       <span>Scan the PhonePe QR code above using <strong>PhonePe, Google Pay, Paytm, or BHIM</strong>.</span>
@@ -620,7 +605,7 @@ export default function PaymentCheckout({ unit, user, onPaymentSuccess, onClose 
 
               {/* B. INSTANT APP TRANSFERS FOR MOBILE DEVICES */}
               {paymentMethod === 'upi_app' && (
-                <div className="space-y-4">
+                <div className="space-y-4 animate-fadeIn">
                   <span className="text-xs text-slate-500 leading-relaxed font-semibold block text-left">
                     Using a mobile phone or tablet? Tap a button below to launch your preferred UPI app with prefilled payment parameters. <strong>After paying, tap the verification check button below to verify statement and unlock notes instantly.</strong>
                   </span>
@@ -654,126 +639,90 @@ export default function PaymentCheckout({ unit, user, onPaymentSuccess, onClose 
                     </a>
                   </div>
 
-                  <div className="bg-amber-50 border border-amber-100 rounded-xl p-3 text-[11px] text-amber-805 leading-relaxed text-left font-semibold text-amber-800">
-                    💡 If clicking doesn't launch your app instantly, use the <strong>"UPI Scan QR"</strong> options tab at the top.
+                  <div className="bg-amber-50 border border-amber-100 rounded-xl p-3 text-[11px] text-amber-800 leading-relaxed text-left font-semibold">
+                    💡 If clicking doesn't launch your app instantly, use the <strong>"Scan QR"</strong> options tab at the top.
                   </div>
                 </div>
               )}
 
-              {/* C. MANUAL DIRECT TRANSFER DETAILED FIELDS */}
-              {paymentMethod === 'manual' && (
-                <div className="space-y-4 text-left">
-                  <span className="text-xs text-slate-500 leading-relaxed font-semibold block font-sans">
-                    You can copy the recipient UPI ID manually inside your favorite app to initiate a direct transaction.
-                  </span>
+              {/* BOB Bank statement live scanner (rendered for Scan QR and UPI App options) */}
+              {paymentMethod !== 'razorpay' && (
+                <div className="pt-3.5 border-t border-slate-100 space-y-4">
+                  <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <label className="block text-xs font-black text-slate-900 uppercase tracking-wider text-left font-sans flex items-center space-x-1.5 flex-1">
+                        <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse inline-block mr-1.5 animate-pulse"></span>
+                        <span>BOB Statement Scanner API</span>
+                      </label>
+                      <span className="text-[10px] font-mono text-zinc-400 font-bold bg-slate-200/60 px-2 py-0.5 rounded-md">CONNECTED</span>
+                    </div>
 
-                  <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 space-y-3 font-semibold text-slate-700 text-xs shadow-inner">
-                    <div className="flex justify-between items-center py-1 border-b border-zinc-150">
-                      <span>Linked Account Name:</span>
-                      <span className="font-extrabold text-slate-900">HandScript Notes</span>
-                    </div>
-                    <div className="flex justify-between items-center py-1 border-b border-zinc-150">
-                      <span>Linked Banking Institution:</span>
-                      <span className="font-extrabold text-slate-900">Bank of Baroda</span>
-                    </div>
-                    <div className="flex justify-between items-center py-1 border-b border-zinc-150">
-                      <span>Exact Amount:</span>
-                      <span className="font-extrabold text-indigo-700">₹ {unit.price}.00</span>
-                    </div>
-                    <div className="flex justify-between items-center pt-1">
-                      <span>UPI ID / Recipient Address:</span>
-                      <div className="flex items-center space-x-1.5 focus-within:ring shadow-sm bg-white border border-slate-200 px-2.5 py-1 rounded-xl">
-                        <span className="font-mono font-black text-slate-900">{recipientUpiId}</span>
-                        <button
-                          type="button"
-                          onClick={handleCopyUpi}
-                          className="text-indigo-600 hover:text-indigo-700 cursor-pointer"
-                          title="Copy UPI ID"
-                        >
-                          <Copy className="h-3.5 w-3.5" />
-                        </button>
+                    {/* Verification UI States */}
+                    {isVerifying ? (
+                      <div className="py-6 flex flex-col items-center justify-center space-y-3.5 bg-white border border-slate-200 rounded-xl p-4">
+                        <Loader2 className="h-7 w-7 text-indigo-600 animate-spin" />
+                        <div className="text-center font-sans space-y-1">
+                          <span className="text-xs font-black text-slate-800 uppercase block tracking-wider animate-pulse">Scanning BOB Bank Statement...</span>
+                          <span className="text-[10px] text-zinc-500 font-mono block">Looking for UPI transfer of ₹{unit.price}.00...</span>
+                        </div>
                       </div>
-                    </div>
-                  </div>
-                  {copied && <span className="bg-emerald-500 text-white text-[10px] py-1 px-2.5 rounded-lg inline-block font-bold">UPI ID Copied to clipboard!</span>}
-              <div className="pt-3.5 border-t border-slate-100 space-y-4">
-                <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 space-y-3">
-                  <div className="flex items-center justify-between">
-                    <label className="block text-xs font-black text-slate-900 uppercase tracking-wider text-left font-sans flex items-center space-x-1.5 flex-1">
-                      <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping inline-block mr-1.5"></span>
-                      <span>BOB Statement Scanner API</span>
-                    </label>
-                    <span className="text-[10px] font-mono text-zinc-400 font-bold bg-slate-200/60 px-2 py-0.5 rounded-md">CONNECTED</span>
-                  </div>
-
-                  {/* Verification UI States */}
-                  {isVerifying ? (
-                    <div className="py-6 flex flex-col items-center justify-center space-y-3.5 bg-white border border-slate-250 rounded-xl p-4">
-                      <Loader2 className="h-7 w-7 text-indigo-600 animate-spin" />
-                      <div className="text-center font-sans space-y-1">
-                        <span className="text-xs font-black text-slate-800 uppercase block tracking-wider animate-pulse font-sans">Scanning BOB Bank Statement...</span>
-                        <span className="text-[10px] text-zinc-500 font-mono block">Looking for UPI transfer of ₹{unit.price}.00...</span>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="space-y-3.5">
-                      {errorMessage ? (
-                        <div className="bg-red-50 border border-red-200 rounded-xl p-3.5 space-y-2 text-left font-sans">
-                          <span className="text-xs font-extrabold text-red-700 block uppercase tracking-wide flex items-center space-x-1 font-sans">
-                            <span>❌ PAYMENT NOT DETECTED YET</span>
-                          </span>
-                          <p className="text-[11px] text-slate-700 font-semibold leading-relaxed">
-                            सर्वर ने आपके डिवाइस से <strong>₹{unit.price}</strong> का भुगतान अभी नहीं पाया है। 
-                            कृपया QR कोड स्कैन करके पेमेंट पूरा करें, फिर 5 सेकंड रुककर <strong className="text-indigo-600 underline">"Verify Status & Unlock"</strong> बटन दोबारा दबाएं।
-                          </p>
-                          <div className="text-[10px] text-zinc-500 font-mono pt-1 text-center border-t border-red-105">
-                            Status Code: BOB_FEEDS_NULL_ENTRY
+                    ) : (
+                      <div className="space-y-3.5">
+                        {errorMessage ? (
+                          <div className="bg-red-50 border border-red-200 rounded-xl p-3.5 space-y-2 text-left font-sans">
+                            <span className="text-xs font-extrabold text-red-700 block uppercase tracking-wide flex items-center space-x-1">
+                              <span>❌ PAYMENT NOT DETECTED YET</span>
+                            </span>
+                            <p className="text-[11px] text-slate-700 font-semibold leading-relaxed">
+                              सर्वर ने आपके डिवाइस से <strong>₹{unit.price}</strong> का भुगतान अभी नहीं पाया है। 
+                              कृपया QR कोड स्कैन करके पेमेंट पूरा करें, फिर 5 सेकंड रुककर <strong className="text-indigo-600 underline">"Verify Status & Unlock"</strong> बटन दोबारा दबाएं।
+                            </p>
+                            <div className="text-[10px] text-zinc-500 font-mono pt-1 text-center border-t border-red-100">
+                              Status Code: BOB_FEEDS_NULL_ENTRY
+                            </div>
                           </div>
-                        </div>
-                      ) : (
-                        <div className="bg-white border border-slate-200 rounded-xl p-3 text-left font-sans space-y-1">
-                          <span className="text-[11px] font-black uppercase tracking-widest block font-semibold text-slate-500">Live Detector Status</span>
-                          <span className="text-xs font-extrabold text-amber-700 block">🔴 Waiting for GPay/PhonePe transfer confirm</span>
-                          <p className="text-[10.5px] text-slate-600 font-medium leading-relaxed font-sans">
-                            सिस्टम सीधे बैंक स्टेटमेंट फेच करता है। पेमेंट करने के बाद, नीचे दिए <strong>Verify</strong> बटन से सीधे अनलॉक करें। कोई प्रूफ या UTR लिखने की जरूरत नहीं है।
-                          </p>
-                        </div>
-                      )}
-                    </div>
-                  )}
+                        ) : (
+                          <div className="bg-white border border-slate-200 rounded-xl p-3 text-left font-sans space-y-1">
+                            <span className="text-[11px] font-black uppercase tracking-widest block font-semibold text-slate-500">Live Detector Status</span>
+                            <span className="text-xs font-extrabold text-amber-700 block">🔴 Waiting for GPay/PhonePe transfer confirm</span>
+                            <p className="text-[10.5px] text-slate-600 font-medium leading-relaxed font-sans">
+                              सिस्टम सीधे बैंक स्टेटमेंट फेच करता है। पेमेंट करने के बाद, नीचे दिए <strong>Verify</strong> बटन से सीधे अनलॉक करें। कोई प्रूफ या UTR लिखने की जरूरत नहीं है।
+                            </p>
+                          </div>
+                        )}
+                      </div>
+                    )}
 
-                  <p className="text-[10px] text-slate-450 text-left leading-relaxed font-sans text-slate-500 font-medium">
-                    ⚡ Rajesh (Admin) system is configured with live banking triggers. Do not close this drawer until success is flagged.
-                  </p>
-                </div>
+                    <p className="text-[10px] text-slate-500 text-left leading-relaxed font-sans font-medium">
+                      ⚡ Rajesh (Admin) system is configured with live banking triggers. Do not close this drawer until success is flagged.
+                    </p>
+                  </div>
 
-                <div className="flex flex-col space-y-2">
-                  <button
-                    id="btn-trigger-verify-status"
-                    type="button"
-                    disabled={isVerifying}
-                    onClick={handleVerifyPayment}
-                    className="w-full bg-slate-950 hover:bg-slate-900 active:scale-98 text-white py-3.5 rounded-2xl font-black text-xs transition-colors cursor-pointer flex items-center justify-center space-x-1.5 shadow-md uppercase tracking-wide font-sans font-extrabold cursor-pointer disabled:opacity-50 font-sans"
-                  >
-                    <span>{isVerifying ? 'Checking Statement Feed...' : 'Verify Status & Unlock PDF ⚡'}</span>
-                  </button>
-
-                  {/* Owner-only Developer Sandbox Override link */}
-                  <div className="pt-1.5 border-t border-slate-100 font-sans">
+                  <div className="flex flex-col space-y-2">
                     <button
-                      id="btn-sandbox-unlock-bypass"
+                      id="btn-trigger-verify-status"
                       type="button"
-                      onClick={handleDevBypassUnlock}
-                      className="w-full text-zinc-500 hover:text-indigo-700 font-semibold text-[10px] bg-slate-50 hover:bg-indigo-50/50 border border-slate-200 border-dashed rounded-lg py-1.5 transition-colors cursor-pointer"
+                      disabled={isVerifying}
+                      onClick={handleVerifyPayment}
+                      className="w-full bg-slate-950 hover:bg-slate-900 active:scale-95 text-white py-3.5 rounded-2xl font-black text-xs transition-colors cursor-pointer flex items-center justify-center space-x-1.5 shadow-md uppercase tracking-wide font-sans font-extrabold"
                     >
-                      ⚡ Developer Sandbox (Direct Bypass Unlock)
+                      <span>{isVerifying ? 'Checking Statement Feed...' : 'Verify Status & Unlock PDF ⚡'}</span>
                     </button>
                   </div>
                 </div>
-              </div>
-            </div>
-          )}
+              )}
 
+              {/* Owner-only Developer Sandbox Override link */}
+              <div className="pt-2.5 border-t border-slate-100 font-sans">
+                <button
+                  id="btn-sandbox-unlock-bypass"
+                  type="button"
+                  onClick={handleDevBypassUnlock}
+                  className="w-full text-zinc-500 hover:text-indigo-700 font-semibold text-[10px] bg-slate-50 hover:bg-indigo-50/50 border border-slate-200 border-dashed rounded-lg py-1.5 transition-colors cursor-pointer"
+                >
+                  ⚡ Developer Sandbox (Direct Bypass Unlock)
+                </button>
+              </div>
             </div>
           )}
 
