@@ -1358,6 +1358,7 @@ export default function App() {
         <PaymentCheckout
           unit={activeCheckoutUnit}
           user={user}
+          purchases={purchases}
           onPaymentSuccess={handlePaymentCompleted}
           onClose={() => setActiveCheckoutUnit(null)}
         />

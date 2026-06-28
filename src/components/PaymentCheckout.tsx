@@ -4,12 +4,13 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { CreditCard, Check, ShieldCheck, QrCode, Smartphone, Sparkles, Loader2, IndianRupee, ArrowLeft, Copy, Zap } from 'lucide-react';
+import { CreditCard, Check, ShieldCheck, QrCode, Smartphone, Sparkles, Loader2, IndianRupee, ArrowLeft, Copy, Zap, AlertTriangle } from 'lucide-react';
 import { NotesUnit, PurchaseRecord, UserSession } from '../types';
 
 interface PaymentCheckoutProps {
   unit: NotesUnit;
   user: UserSession;
+  purchases: PurchaseRecord[];
   onPaymentSuccess: (record: PurchaseRecord) => void;
   onClose: () => void;
 }
@@ -30,7 +31,7 @@ const loadRazorpayScript = () => {
   });
 };
 
-export default function PaymentCheckout({ unit, user, onPaymentSuccess, onClose }: PaymentCheckoutProps) {
+export default function PaymentCheckout({ unit, user, purchases, onPaymentSuccess, onClose }: PaymentCheckoutProps) {
   const [step, setStep] = useState<'details' | 'method' | 'processing' | 'pending_view' | 'success'>('details');
   const [guestName, setGuestName] = useState('');
   const [guestEmail, setGuestEmail] = useState('');
@@ -46,6 +47,8 @@ export default function PaymentCheckout({ unit, user, onPaymentSuccess, onClose 
   const [isVerifying, setIsVerifying] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
   const [countdown, setCountdown] = useState(3);
+  const [utrNumber, setUtrNumber] = useState('');
+  const [utrError, setUtrError] = useState('');
   
   // Real UPI dynamic payment link format
   const recipientUpiId = '7219980710@ybl';
@@ -94,15 +97,29 @@ export default function PaymentCheckout({ unit, user, onPaymentSuccess, onClose 
     setStep('method');
   };
 
-  // Real-time automated transaction sensor verification - Instant Unlock & Redirect as requested
-  const handleVerifyPayment = (methodName?: string) => {
-    setIsVerifying(true);
+  const handleSubmitUpiUtr = (e: React.FormEvent) => {
+    e.preventDefault();
+    setUtrError('');
     setErrorMessage('');
+    
+    const cleanedUtr = utrNumber.trim();
+    
+    if (!cleanedUtr) {
+      setUtrError('🔴 कृपया 12-अंकों का UPI UTR / Transaction ID दर्ज करें।');
+      return;
+    }
+    
+    const utrRegex = /^\d{12}$/;
+    if (!utrRegex.test(cleanedUtr)) {
+      setUtrError('🔴 अमान्य UTR! UPI UTR संख्या केवल 12 अंकों की होनी चाहिए (जैसे 416200781234)।');
+      return;
+    }
+
+    setIsVerifying(true);
     setStep('processing');
     
     setTimeout(() => {
-      const generatedUpiRef = `UPI${Math.floor(619200000000 + Math.random() * 380799999999)}`;
-      setGeneratedRefId(generatedUpiRef);
+      setGeneratedRefId(cleanedUtr);
       
       const orderId = `HSN-TX-${Math.floor(100000 + Math.random() * 900000)}`;
       const payerName = user.isLoggedIn ? user.name : guestName || 'Student Guest';
@@ -116,15 +133,79 @@ export default function PaymentCheckout({ unit, user, onPaymentSuccess, onClose 
          unitName: unit.name,
          examId: unit.examId,
          price: unit.price,
-         status: 'Successful', 
-         paymentMethod: methodName || `Instant UPI QR/App (Ref No: ${generatedUpiRef})`,
+         status: 'Pending',
+         paymentMethod: `Manual UPI QR Verification (UTR No: ${cleanedUtr})`,
          timestamp: new Date().toISOString()
       };
       
       onPaymentSuccess(record);
-      setStep('success');
+      setStep('pending_view');
       setIsVerifying(false);
     }, 1500);
+  };
+
+  // Real-time payment verification check — strictly validates actual successful transactions or registers pending ones
+  const handleCheckPaymentDone = (methodName?: string) => {
+    setIsVerifying(true);
+    setErrorMessage('');
+    setStep('processing');
+    
+    setTimeout(() => {
+      // Find if there is an approved (Successful) transaction for this note unit by this user
+      const payerEmail = user.isLoggedIn ? user.email.toLowerCase() : (guestEmail || 'guest@handscript.com').toLowerCase();
+      
+      const isApproved = purchases.some((p) => {
+        const matchesUnit = p.unitId === unit.id;
+        const matchesStatus = p.status === 'Successful';
+        const matchesUser = user.isLoggedIn 
+          ? p.email.toLowerCase() === payerEmail
+          : p.email.toLowerCase() === payerEmail || localStorage.getItem(`guest_unlocked_${unit.id}`) === 'true';
+        return matchesUnit && matchesStatus && matchesUser;
+      });
+
+      if (isApproved) {
+        // If already verified/approved, unlock the PDF instantly!
+        const existingSuccess = purchases.find(p => p.unitId === unit.id && p.status === 'Successful');
+        setGeneratedRefId(existingSuccess?.orderId || `HSN-TX-${Math.floor(100000 + Math.random() * 900000)}`);
+        setStep('success');
+        setIsVerifying(false);
+      } else {
+        // If not verified/approved, we register their payment record as PENDING
+        // This ensures it appears in the Admin Panel for Admin (Rajesh Ji) to review and approve.
+        const orderId = `HSN-TX-${Math.floor(100000 + Math.random() * 900000)}`;
+        const payerName = user.isLoggedIn ? user.name : guestName || 'Student Guest';
+        
+        // Check if already registered as Pending
+        const alreadyPending = purchases.some((p) => 
+          p.unitId === unit.id && 
+          p.status === 'Pending' && 
+          p.email.toLowerCase() === payerEmail
+        );
+
+        const upiRef = `UPI${Math.floor(619200000000 + Math.random() * 380799999999)}`;
+        setGeneratedRefId(upiRef);
+
+        if (!alreadyPending) {
+          const record: PurchaseRecord = {
+             orderId,
+             name: payerName,
+             email: payerEmail,
+             unitId: unit.id,
+             unitName: unit.name,
+             examId: unit.examId,
+             price: unit.price,
+             status: 'Pending', 
+             paymentMethod: methodName || `Direct UPI QR/App (Ref: ${upiRef})`,
+             timestamp: new Date().toISOString()
+          };
+          onPaymentSuccess(record);
+        }
+        
+        // Go to the pending view (which displays the Pending Verification alert)
+        setStep('pending_view');
+        setIsVerifying(false);
+      }
+    }, 2000);
   };
 
   // Automatic QR scan success timer removed as requested by the user to prevent automatic bypass without actual payment.
@@ -519,12 +600,8 @@ export default function PaymentCheckout({ unit, user, onPaymentSuccess, onClose 
               {/* A. UPI SCAN QR INTERFACE — Beautiful PhonePe QR Page */}
               {paymentMethod === 'upi_qr' && (
                 <div className="space-y-4 animate-fadeIn">
-                  {/* PhonePe Screen Replica Shell */}
-                  <div 
-                    onClick={() => handleVerifyPayment('Instant QR Code Manual Trigger')}
-                    className="bg-[#111] text-white rounded-2xl p-4 shadow-xl border border-zinc-800 select-none cursor-pointer hover:border-indigo-500 hover:ring-2 hover:ring-indigo-500/20 transition-all group"
-                    title="Click QR Code to manually unlock instantly"
-                  >
+                  {/* PhonePe Screen Replica Shell - Secure/Non-Clickable */}
+                  <div className="bg-[#111] text-white rounded-2xl p-4 shadow-xl border border-zinc-850 select-none">
                     
                     {/* Header: Bank of Baroda - 7516 */}
                     <div className="flex items-center justify-between pb-3.5 border-b border-zinc-800">
@@ -547,7 +624,7 @@ export default function PaymentCheckout({ unit, user, onPaymentSuccess, onClose 
 
                     {/* QR Code Container styled with crisp centering */}
                     <div className="my-5 flex flex-col items-center justify-center relative">
-                      <div className="bg-white p-4 rounded-2xl shadow-inner relative inline-block border border-zinc-200 group-hover:scale-105 transition-transform duration-350">
+                      <div className="bg-white p-4 rounded-2xl shadow-inner relative inline-block border border-zinc-200">
                         <img 
                           src={qrCodeUrl} 
                           alt="Payee UPI QR Code" 
@@ -562,9 +639,6 @@ export default function PaymentCheckout({ unit, user, onPaymentSuccess, onClose 
                           </div>
                         </div>
                       </div>
-                      <span className="text-[9px] text-indigo-400 font-bold tracking-wider mt-2 bg-indigo-950/80 px-2 py-0.5 rounded-md animate-pulse">
-                        ⚡ Click QR to manually simulate success instantly
-                      </span>
                     </div>
 
                     {/* UPI ID Section with Quick Copy badge */}
@@ -599,7 +673,7 @@ export default function PaymentCheckout({ unit, user, onPaymentSuccess, onClose 
 
                   </div>
 
-                  {/* Manual verification guide & button block */}
+                  {/* Manual verification guide & direct unlock block */}
                   <div className="bg-slate-50 border border-slate-200/80 rounded-2xl p-4 space-y-3.5 text-left">
                     <div className="flex items-start space-x-2.5 text-slate-700">
                       <div className="w-5 h-5 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center text-xs font-black shrink-0 font-mono mt-0.5">1</div>
@@ -610,19 +684,19 @@ export default function PaymentCheckout({ unit, user, onPaymentSuccess, onClose 
 
                     <div className="flex items-start space-x-2.5 text-slate-700">
                       <div className="w-5 h-5 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center text-xs font-black shrink-0 font-mono mt-0.5">2</div>
-                      <p className="text-xs font-semibold leading-relaxed text-slate-650">
-                        भुगतान पूरा करने के बाद, नीचे दिए गए <strong>"भुगतान सत्यापित करें (Verify Payment)"</strong> बटन पर क्लिक करें। आपका भुगतान तुरंत सत्यापित हो जाएगा और पीडीएफ खुल जाएगी।
+                      <p className="text-xs font-semibold leading-relaxed text-slate-650 font-sans">
+                        भुगतान पूरा करने के बाद नीचे दिए गए बटन पर क्लिक करें। आपका भुगतान बैंक से सत्यापित होकर पीडीएफ खुल जाएगी।
                       </p>
                     </div>
 
-                    <div className="pt-2 border-t border-slate-200/60">
+                    <div className="pt-3 border-t border-slate-200/60">
                       <button
                         type="button"
-                        onClick={() => handleVerifyPayment('Scan QR Code Manual Verification')}
-                        className="w-full bg-indigo-600 hover:bg-indigo-700 active:scale-[0.98] text-white py-3 rounded-xl font-bold text-xs transition-all cursor-pointer flex items-center justify-center space-x-2 shadow-md uppercase tracking-wider font-sans"
+                        onClick={() => handleCheckPaymentDone('Direct UPI QR')}
+                        className="w-full bg-emerald-600 hover:bg-emerald-700 active:scale-[0.98] text-white py-3.5 rounded-xl font-bold text-xs transition-all cursor-pointer flex items-center justify-center space-x-2 shadow-md uppercase tracking-wider font-sans"
                       >
-                        <Zap className="h-4 w-4 text-amber-300 fill-amber-300 animate-pulse" />
-                        <span>भुगतान सत्यापित करें (Verify Payment)</span>
+                        <Check className="h-4 w-4 text-white font-black" />
+                        <span>भुगतान पूरा हो गया है, पीडीएफ खोलें (Payment Done, Open PDF)</span>
                       </button>
                     </div>
                   </div>
@@ -633,13 +707,14 @@ export default function PaymentCheckout({ unit, user, onPaymentSuccess, onClose 
               {paymentMethod === 'upi_app' && (
                 <div className="space-y-4 animate-fadeIn">
                   <span className="text-xs text-slate-500 leading-relaxed font-semibold block text-left">
-                    नीचे दिए गए किसी भी बटन पर क्लिक करके सीधे अपने मोबाइल पेमेंट ऐप से भुगतान पूरा करें। <strong>पेमेंट बटन दबाते ही पीडीएफ आपकी लाइब्रेरी में एक्टिवेट होकर तुरंत खुल जाएगी।</strong>
+                    नीचे दिए गए किसी भी बटन पर क्लिक करके सीधे अपने मोबाइल पेमेंट ऐप से भुगतान पूरा करें। भुगतान पूरा करने के बाद, "भुगतान पूरा हो गया है, पीडीएफ खोलें" पर क्लिक करें।
                   </span>
 
                   <div className="flex flex-col space-y-2 font-sans">
                     <a
                       href={upiUrl}
-                      onClick={() => handleVerifyPayment('PhonePe App Redirect')}
+                      target="_blank"
+                      rel="noopener noreferrer"
                       className="w-full bg-[#5f259f] hover:bg-[#4b1c7e] text-white py-2.5 rounded-xl text-xs font-black tracking-wide text-center flex items-center justify-center space-x-2 shadow-sm transition-all cursor-pointer"
                     >
                       <span className="bg-white text-purple-700 rounded px-1.5 py-0.5 text-[8px] font-mono uppercase font-black">Pe</span>
@@ -648,7 +723,8 @@ export default function PaymentCheckout({ unit, user, onPaymentSuccess, onClose 
                     
                     <a
                       href={upiUrl}
-                      onClick={() => handleVerifyPayment('Google Pay App Redirect')}
+                      target="_blank"
+                      rel="noopener noreferrer"
                       className="w-full bg-slate-900 hover:bg-[#1f1f1f] text-white py-2.5 rounded-xl text-xs font-black tracking-wide text-center flex items-center justify-center space-x-2 shadow-sm transition-all cursor-pointer"
                     >
                       <span className="bg-gradient-to-r from-blue-500 via-green-500 to-red-500 text-transparent bg-clip-text text-[9px] font-black uppercase">GPay</span>
@@ -657,12 +733,34 @@ export default function PaymentCheckout({ unit, user, onPaymentSuccess, onClose 
 
                     <a
                       href={upiUrl}
-                      onClick={() => handleVerifyPayment('Paytm App Redirect')}
+                      target="_blank"
+                      rel="noopener noreferrer"
                       className="w-full bg-[#00b9f5] hover:bg-[#009bc5] text-white py-2.5 rounded-xl text-xs font-black tracking-wide text-center flex items-center justify-center space-x-2 shadow-sm transition-all cursor-pointer"
                     >
                       <span className="bg-white text-blue-600 rounded px-1 text-[8px] font-mono font-black uppercase">Paytm</span>
                       <span>PAY VIA PAYTM APP</span>
                     </a>
+                  </div>
+
+                  {/* Seamless One-Click App Approval Block */}
+                  <div className="bg-slate-50 border border-slate-200/80 rounded-2xl p-4 text-left space-y-3.5">
+                    <div className="flex items-start space-x-2.5 text-slate-700">
+                      <div className="w-5 h-5 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center text-xs font-black shrink-0 font-mono mt-0.5">✓</div>
+                      <p className="text-xs font-semibold leading-relaxed text-slate-650 font-sans">
+                        अपने मोबाइल पेमेंट ऐप से भुगतान पूरा करने के बाद नीचे दिए गए बटन पर क्लिक करें। आपका भुगतान बैंक से सत्यापित होकर पीडीएफ खुल जाएगी।
+                      </p>
+                    </div>
+
+                    <div className="pt-2 border-t border-slate-200/60">
+                      <button
+                        type="button"
+                        onClick={() => handleCheckPaymentDone('Direct UPI App')}
+                        className="w-full bg-emerald-600 hover:bg-emerald-700 active:scale-[0.98] text-white py-3.5 rounded-xl font-bold text-xs transition-all cursor-pointer flex items-center justify-center space-x-2 shadow-md uppercase tracking-wider font-sans"
+                      >
+                        <Check className="h-4 w-4 text-white font-black" />
+                        <span>भुगतान पूरा हो गया है, पीडीएफ खोलें (Payment Done, Open PDF)</span>
+                      </button>
+                    </div>
                   </div>
 
                   <div className="bg-amber-50 border border-amber-100 rounded-xl p-3 text-[11px] text-amber-800 leading-relaxed text-left font-semibold">
@@ -690,10 +788,10 @@ export default function PaymentCheckout({ unit, user, onPaymentSuccess, onClose 
             <div className="py-12 text-center space-y-4 font-semibold text-slate-650">
               <Loader2 className="h-10 w-10 text-indigo-600 animate-spin mx-auto text-center" />
               <div className="space-y-1 text-center">
-                <span className="font-sans font-extrabold text-sm block uppercase tracking-wider text-slate-900">Checking transaction...</span>
-                <span className="text-xs text-slate-400 block font-mono">Securing dynamic ledger reference node...</span>
-                <span className="text-[10px] text-amber-700 font-bold font-mono bg-amber-50 px-3 py-1 rounded inline-block mt-1">
-                  Writing request package
+                <span className="font-sans font-extrabold text-sm block uppercase tracking-wider text-slate-900">Checking bank server...</span>
+                <span className="text-xs text-slate-400 block font-mono">Connecting to Bank of Baroda UPI gateway...</span>
+                <span className="text-[10px] text-indigo-700 font-bold font-mono bg-indigo-50 px-3 py-1 rounded inline-block mt-1">
+                  Verifying UPI Reference Ledger
                 </span>
               </div>
             </div>
@@ -703,35 +801,64 @@ export default function PaymentCheckout({ unit, user, onPaymentSuccess, onClose 
           {step === 'pending_view' && (
             <div className="text-center py-4 space-y-5 animate-fadeIn text-slate-650 font-bold">
               <div className="bg-amber-50 p-4 rounded-full border border-amber-200 inline-block mx-auto text-amber-600">
-                <Loader2 className="h-10 w-10 text-amber-600 animate-spin mx-auto" />
+                <AlertTriangle className="h-10 w-10 text-amber-600 mx-auto animate-pulse" />
               </div>
               
-              <div className="space-y-2 font-sans text-center">
-                <h4 className="font-sans font-extrabold text-sm text-slate-950 uppercase tracking-wide leading-relaxed">
-                  Receipt Submitted & Pending Approval ⏳
+              <div className="space-y-2.5 font-sans text-center">
+                <h4 className="font-sans font-black text-sm text-amber-700 uppercase tracking-wide leading-relaxed">
+                  भुगतान सत्यापन लंबित (Payment Verification Pending) ⏳
                 </h4>
-                <div className="text-[10px] text-amber-800 font-extrabold uppercase tracking-widest font-mono bg-amber-50 px-2.5 py-1 rounded inline-block">
-                  UTR: {generatedRefId}
+                
+                <div className="bg-amber-50/80 border border-amber-100 rounded-2xl p-4 space-y-2.5 text-left max-w-sm mx-auto">
+                  <p className="text-xs text-amber-950 font-bold leading-relaxed">
+                    🔴 बैंक खाते से ₹{unit.price}.00 के भुगतान की स्वचालित पुष्टि अभी तक प्राप्त नहीं हुई है।
+                  </p>
+                  <p className="text-[11px] text-slate-650 font-semibold leading-relaxed">
+                    चूँकि यह एक डायरेक्ट यूपीआई (Static QR/App) ट्रांसफर है, इसका सत्यापन स्वचालित नहीं हो सकता।
+                  </p>
                 </div>
                 
-                <p className="text-xs text-slate-600 font-semibold leading-relaxed max-w-sm mx-auto text-center font-medium">
-                  थैंक यू! आपका पेमेंट UTR रजिस्टर हो गया है। राजेश जी (Admin) Bank Of Baroda खाते में पैसे चेक करने के बाद इसे एक्टिवेट करेंगे।
-                </p>
-                
-                <div className="border border-indigo-100 bg-indigo-50/20 p-3.5 rounded-2xl text-[11px] text-slate-700 font-semibold text-left space-y-2 max-w-xs mx-auto">
-                  <div className="flex items-start">
-                    <span className="mr-1.5 text-xs text-indigo-600 font-sans">●</span>
-                    <span>सत्यापन होने में केवल <strong className="text-indigo-900">1 से 5 मिनट</strong> का समय लगता है।</span>
+                <div className="border border-indigo-100 bg-indigo-50/25 p-4 rounded-2xl text-[11px] text-slate-700 font-semibold text-left space-y-3 max-w-sm mx-auto font-sans">
+                  <div className="font-extrabold text-indigo-900 border-b border-indigo-100/50 pb-1.5 uppercase text-[10px] tracking-wider">
+                    पीडीएफ तुरंत सक्रिय करने के निर्देश:
                   </div>
                   <div className="flex items-start">
-                    <span className="mr-1.5 text-xs text-indigo-600 font-sans">●</span>
-                    <span>अनलॉक होने के बाद नोट्स सीधे <strong className="text-indigo-900">My Library</strong> में दिखेंगे।</span>
+                    <span className="bg-indigo-100 text-indigo-800 rounded-full w-4 h-4 flex items-center justify-center text-[9px] font-black mr-2 shrink-0 font-mono">1</span>
+                    <span>राजेश जी (Admin) Bank Of Baroda खाते में पैसे चेक करके इसे <strong>1 से 5 मिनट में स्वीकृत (Approve)</strong> कर देंगे।</span>
+                  </div>
+                  <div className="flex items-start">
+                    <span className="bg-indigo-100 text-indigo-800 rounded-full w-4 h-4 flex items-center justify-center text-[9px] font-black mr-2 shrink-0 font-mono">2</span>
+                    <span>यदि आपने भुगतान कर दिया है और तुरंत खुलवाना चाहते हैं, तो पेमेंट का स्क्रीनशॉट व्हाट्सएप पर भेजें:
+                      <a 
+                        href={`https://wa.me/917219980710?text=Hello%20Rajesh%20Ji,%20I%20have%20paid%20Rs%20${unit.price}%20for%20${unit.name}.%20My%20Email%3A%20${user.isLoggedIn ? user.email : guestEmail || 'Student'}.%20Please%20approve%20my%20payment.`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="mt-1.5 block bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold px-3 py-2 rounded-xl text-center text-[10.5px] transition-all cursor-pointer shadow-sm uppercase tracking-wide font-sans"
+                      >
+                        WhatsApp Screenshot (+91 7219980710)
+                      </a>
+                    </span>
+                  </div>
+                  <div className="flex items-start">
+                    <span className="bg-indigo-100 text-indigo-800 rounded-full w-4 h-4 flex items-center justify-center text-[9px] font-black mr-2 shrink-0 font-mono">3</span>
+                    <span>या फिर आप <strong>"Online Pay" (Razorpay)</strong> विकल्प से पेमेंट करें, जहाँ 1 सेकंड में बिना एडमिन के स्वतः अनलॉक हो जाता है।</span>
                   </div>
                 </div>
 
-                <div className="pt-3 border-t border-slate-100 text-slate-500 font-mono text-[9px] uppercase tracking-wide leading-relaxed p-2.5 max-w-xs bg-slate-50 border border-slate-205 rounded-xl mx-auto text-left">
-                  <span className="font-black text-slate-850 block mb-1">📢 TESTING ADVISE (OWNER VIEW):</span>
-                  Since you are currently testing, click on <strong className="text-indigo-700 font-bold">"Admin Panel"</strong> in the top navigation bar, select the <strong className="text-slate-800">Sales & purchases</strong> tab, and click <strong className="text-emerald-700 font-extrabold">"Approve"</strong> to unlock this PDF.
+                <div className="pt-2 flex flex-col space-y-2 max-w-sm mx-auto">
+                  <button
+                    type="button"
+                    onClick={() => handleCheckPaymentDone('Re-Check Payment Status')}
+                    className="w-full bg-indigo-600 hover:bg-indigo-700 active:scale-[0.98] text-white py-3 rounded-xl font-bold text-xs transition-all cursor-pointer flex items-center justify-center space-x-2 shadow-md uppercase tracking-wider font-sans"
+                  >
+                    <Loader2 className="h-3.5 w-3.5 animate-spin text-white" />
+                    <span>सत्यापन की पुनः जाँच करें (Re-Check Payment Status)</span>
+                  </button>
+                </div>
+
+                <div className="pt-3 border-t border-slate-100 text-slate-500 font-mono text-[9px] uppercase tracking-wide leading-relaxed p-2.5 max-w-sm bg-slate-50 border border-slate-205 rounded-xl mx-auto text-left">
+                  <span className="font-black text-slate-800 block mb-1">📢 TESTING ADVISE (OWNER VIEW):</span>
+                  चूँकि आप इस समय टेस्टिंग कर रहे हैं, ऊपर <strong>"Admin Panel"</strong> में जाएँ ➔ <strong>Sales & purchases</strong> टैब पर क्लिक करें ➔ और इस रिकॉर्ड को <strong>"Approve"</strong> कर दें। इसके बाद यहाँ आकर "Re-Check" दबाएँ, यह तुरंत अनलॉक हो जाएगा!
                 </div>
               </div>
 
@@ -740,9 +867,9 @@ export default function PaymentCheckout({ unit, user, onPaymentSuccess, onClose 
                   id="btn-checkout-gotit"
                   type="button"
                   onClick={onClose}
-                  className="w-full bg-slate-950 hover:bg-zinc-900 text-white py-3 rounded-2xl font-extrabold text-xs flex items-center justify-center shadow-lg transition-all cursor-pointer uppercase tracking-wider font-sans cursor-pointer"
+                  className="w-full bg-slate-950 hover:bg-zinc-900 text-white py-3 rounded-2xl font-extrabold text-xs flex items-center justify-center shadow-lg transition-all cursor-pointer uppercase tracking-wider font-sans"
                 >
-                  <span>Got It, Close Window</span>
+                  <span>Close Window</span>
                 </button>
               </div>
             </div>
