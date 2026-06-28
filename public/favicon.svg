@@ -1,15 +1,52 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
   <defs>
-    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+    <!-- Beautiful gradient matching from-brand-orange to-amber-500 -->
+    <linearGradient id="logoGrad" x1="0%" y1="0%" x2="100%" y2="100%">
       <stop offset="0%" stop-color="#f97316" />
-      <stop offset="100%" stop-color="#ea580c" />
+      <stop offset="100%" stop-color="#f59e0b" />
     </linearGradient>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="8" stdDeviation="12" flood-color="#ea580c" flood-opacity="0.25"/>
+    </filter>
   </defs>
-  <rect width="512" height="512" rx="128" fill="url(#bgGrad)" />
-  <rect x="96" y="96" width="320" height="320" rx="40" fill="#ffffff" />
-  <rect x="70" y="140" width="40" height="20" rx="10" fill="#cbd5e1" />
-  <rect x="70" y="220" width="40" height="20" rx="10" fill="#cbd5e1" />
-  <rect x="70" y="300" width="40" height="20" rx="10" fill="#cbd5e1" />
-  <path d="M 170 160 L 170 320 M 250 160 L 250 320 M 170 240 L 250 240" stroke="#0f172a" stroke-width="28" stroke-linecap="round" stroke-linejoin="round" />
-  <path d="M 340 180 C 310 180, 290 200, 290 220 C 290 250, 340 240, 340 280 C 340 300, 320 320, 290 320" stroke="#f97316" stroke-width="24" stroke-linecap="round" stroke-linejoin="round" fill="none" />
+  
+  <!-- Rounded gradient square matching Navbar rounded-xl -->
+  <rect width="512" height="512" rx="112" fill="url(#logoGrad)" />
+  
+  <!-- Outer glowing ring / border -->
+  <rect x="24" y="24" width="464" height="464" rx="88" fill="none" stroke="#ffffff" stroke-width="8" stroke-opacity="0.15" />
+
+  <!-- Book Symbol (representing BookOpen in White) -->
+  <g transform="translate(96, 96) scale(1.35)" filter="url(#shadow)">
+    <!-- Left page -->
+    <path d="M12 48c0-13.25 10.75-24 24-24h92c11.05 0 20 8.95 20 20v140c0 11.05-8.95 20-20 20H36c-13.25 0-24-10.75-24-24V48z" fill="#ffffff" />
+    <!-- Right page -->
+    <path d="M228 48c0-13.25-10.75-24-24-24h-92c-11.05 0-20 8.95-20 20v140c0 11.05 8.95 20 20 20h92c13.25 0 24-10.75 24-24V48z" fill="#ffffff" opacity="0.95" />
+    
+    <!-- Spine / Middle shadow separator -->
+    <path d="M112 24v156" stroke="#f37021" stroke-width="8" stroke-linecap="round" />
+    
+    <!-- Left page content lines -->
+    <line x1="36" y1="64" x2="92" y2="64" stroke="#e2e8f0" stroke-width="6" stroke-linecap="round" />
+    <line x1="36" y1="96" x2="84" y2="96" stroke="#e2e8f0" stroke-width="6" stroke-linecap="round" />
+    <line x1="36" y1="128" x2="92" y2="128" stroke="#e2e8f0" stroke-width="6" stroke-linecap="round" />
+
+    <!-- Right page content lines -->
+    <line x1="148" y1="64" x2="204" y2="64" stroke="#e2e8f0" stroke-width="6" stroke-linecap="round" />
+    <line x1="148" y1="96" x2="196" y2="96" stroke="#e2e8f0" stroke-width="6" stroke-linecap="round" />
+    <line x1="148" y1="128" x2="204" y2="128" stroke="#e2e8f0" stroke-width="6" stroke-linecap="round" />
+  </g>
+
+  <!-- Pen Symbol (representing PenTool in amber, floating bottom right) -->
+  <g transform="translate(320, 320) scale(1.1)">
+    <!-- Pen circular container badge matching Navbar bg-white border border-amber-400 -->
+    <circle cx="64" cy="64" r="56" fill="#ffffff" stroke="#fbbf24" stroke-width="8" />
+    
+    <!-- Pen tip drawing path -->
+    <path d="M36 84 L48 92 L92 48 C96 44, 96 36, 92 32 C88 28, 80 28, 76 32 L36 72 Z" fill="#f59e0b" />
+    <!-- Pen Nib point -->
+    <path d="M36 84 L28 96 L40 92 Z" fill="#d97706" />
+    <!-- Small drawing swirl line -->
+    <path d="M20 100 C 40 108, 100 108, 108 72" fill="none" stroke="#fbbf24" stroke-width="6" stroke-linecap="round" />
+  </g>
 </svg>

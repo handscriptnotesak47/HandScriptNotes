@@ -4,7 +4,7 @@
   "description": "Premium Handwritten Notes for Competitive Computer Science Exams compiled by Rajesh Ji.",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#0f172a",
+  "background_color": "#ffffff",
   "theme_color": "#f97316",
   "icons": [
     {
