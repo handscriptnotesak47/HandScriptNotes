@@ -1278,35 +1278,49 @@ export default function DocReader({ unit, isUnlocked, onBuy, onClose }: DocReade
         {/* Bottom control navigation bar */}
         <div className="bg-slate-950 p-4 sm:px-6 border-t border-slate-800 flex flex-col sm:flex-row space-y-4 sm:space-y-0 sm:items-center sm:justify-between">
           
-          <div className="flex items-center space-x-3 justify-center">
-            <button
-              onClick={handlePrev}
-              disabled={currentPageIndex === 0}
-              className={`p-2 rounded-xl transition-all border duration-150 cursor-pointer ${
-                currentPageIndex === 0
-                  ? 'border-slate-900 text-slate-700 bg-slate-950 cursor-not-allowed'
-                  : 'border-slate-800 text-slate-300 bg-slate-900 hover:bg-slate-800 shadow-sm'
-              }`}
-              title="Previous Page"
-            >
-              <ChevronLeft className="h-5 w-5" />
-            </button>
-            <span className="text-xs sm:text-sm font-semibold font-mono text-slate-400">
-              Page <span className="text-white font-bold bg-slate-900 border border-slate-800 px-2.5 py-1 rounded-lg text-sm select-none">{pageInfo.pageNumber}</span> of {isPedagogy1 ? 40 : (isUnlocked ? unit.fullPages.length : unit.demoPages.length)}
-            </span>
-            <button
-              onClick={handleNext}
-              disabled={currentPageIndex === totalPages - 1 && isUnlocked}
-              className={`p-2 rounded-xl transition-all border duration-150 cursor-pointer ${
-                currentPageIndex === totalPages - 1 && isUnlocked
-                  ? 'border-slate-900 text-slate-700 bg-slate-950 cursor-not-allowed'
-                  : 'border-slate-800 text-slate-300 bg-slate-900 hover:bg-slate-800 shadow-sm'
-              }`}
-              title="Next Page"
-            >
-              <ChevronRight className="h-5 w-5" />
-            </button>
-          </div>
+          {viewMode === 'scan' ? (
+            <div className="flex items-center space-x-3 justify-center">
+              <button
+                onClick={handlePrev}
+                disabled={currentPageIndex === 0}
+                className={`p-2 rounded-xl transition-all border duration-150 cursor-pointer ${
+                  currentPageIndex === 0
+                    ? 'border-slate-900 text-slate-700 bg-slate-950 cursor-not-allowed'
+                    : 'border-slate-800 text-slate-300 bg-slate-900 hover:bg-slate-800 shadow-sm'
+                }`}
+                title="Previous Page"
+              >
+                <ChevronLeft className="h-5 w-5" />
+              </button>
+              <span className="text-xs sm:text-sm font-semibold font-mono text-slate-400">
+                Page <span className="text-white font-bold bg-slate-900 border border-slate-800 px-2.5 py-1 rounded-lg text-sm select-none">{pageInfo.pageNumber}</span> of {isPedagogy1 ? 40 : (isUnlocked ? unit.fullPages.length : unit.demoPages.length)}
+              </span>
+              <button
+                onClick={handleNext}
+                disabled={currentPageIndex === totalPages - 1 && isUnlocked}
+                className={`p-2 rounded-xl transition-all border duration-150 cursor-pointer ${
+                  currentPageIndex === totalPages - 1 && isUnlocked
+                    ? 'border-slate-900 text-slate-700 bg-slate-950 cursor-not-allowed'
+                    : 'border-slate-800 text-slate-300 bg-slate-900 hover:bg-slate-800 shadow-sm'
+                }`}
+                title="Next Page"
+              >
+                <ChevronRight className="h-5 w-5" />
+              </button>
+            </div>
+          ) : (
+            <div className="text-center font-sans">
+              {isUnlocked ? (
+                <span className="text-emerald-400 text-xs sm:text-sm font-bold bg-emerald-950/40 border border-emerald-900/30 px-3 py-1.5 rounded-xl block animate-fadeIn">
+                  ✓ Full PDF Unlocked • Scroll inside the box to read all pages
+                </span>
+              ) : (
+                <span className="text-amber-400 text-xs sm:text-sm font-bold bg-amber-950/40 border border-amber-900/30 px-3 py-1.5 rounded-xl block animate-fadeIn">
+                  ⚠️ Demo Mode • Showing starting 4 pages only
+                </span>
+              )}
+            </div>
+          )}
 
           <div className="flex items-center space-x-3 justify-center">
             {isUnlocked ? (

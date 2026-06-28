@@ -496,47 +496,15 @@ export default function PaymentCheckout({ unit, user, purchases, onPaymentSucces
                 </div>
               </div>
 
-              {/* Seamless payment routing channels (Excluding Manual UPI as requested) */}
-              <div className="grid grid-cols-3 gap-1.5">
-                <button
-                  id="tab-pay-razorpay"
-                  type="button"
-                  onClick={() => setPaymentMethod('razorpay')}
-                  className={`flex flex-col items-center justify-center py-2 px-1 rounded-xl border transition-all cursor-pointer ${
-                    paymentMethod === 'razorpay'
-                      ? 'border-indigo-600 bg-indigo-50/20 text-indigo-700 font-bold shadow-sm'
-                      : 'border-slate-200 bg-white text-slate-500 hover:text-slate-800'
-                  }`}
-                >
-                  <Zap className="h-4 w-4 mb-1 text-indigo-600 fill-amber-300" />
-                  <span className="text-[9px] font-bold text-center tracking-tight">Online Pay</span>
-                </button>
-                <button
-                  id="tab-pay-qr"
-                  type="button"
-                  onClick={() => setPaymentMethod('upi_qr')}
-                  className={`flex flex-col items-center justify-center py-2 px-1 rounded-xl border transition-all cursor-pointer ${
-                    paymentMethod === 'upi_qr'
-                      ? 'border-indigo-600 bg-indigo-50/20 text-indigo-700 font-bold'
-                      : 'border-slate-200 bg-white text-slate-500 hover:text-slate-800'
-                  }`}
-                >
-                  <QrCode className="h-4 w-4 mb-1 text-indigo-600" />
-                  <span className="text-[9px] font-bold text-center tracking-tight">Scan QR</span>
-                </button>
-                <button
-                  id="tab-pay-apps"
-                  type="button"
-                  onClick={() => setPaymentMethod('upi_app')}
-                  className={`flex flex-col items-center justify-center py-2 px-1 rounded-xl border transition-all cursor-pointer ${
-                    paymentMethod === 'upi_app'
-                      ? 'border-purple-600 bg-purple-50/20 text-purple-700 font-bold'
-                      : 'border-slate-200 bg-white text-slate-500 hover:text-slate-800'
-                  }`}
-                >
-                  <Smartphone className="h-4 w-4 mb-1 text-purple-600" />
-                  <span className="text-[9px] font-bold text-center tracking-tight">UPI App</span>
-                </button>
+              {/* Seamless payment routing channels (Only Online Pay - Razorpay as requested) */}
+              <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 flex items-center justify-between">
+                <div className="flex items-center space-x-2">
+                  <Zap className="h-4 w-4 text-amber-500 fill-amber-400" />
+                  <span className="text-xs font-extrabold text-slate-800">Secure Online Pay (Razorpay)</span>
+                </div>
+                <span className="bg-emerald-100 text-emerald-800 text-[9px] font-black px-2 py-0.5 rounded-md uppercase tracking-wider">
+                  Instant Unlock
+                </span>
               </div>
 
               {/* ⚡ INSTANT ONLINE PAYMENT VIA RAZORPAY */}
@@ -597,177 +565,7 @@ export default function PaymentCheckout({ unit, user, purchases, onPaymentSucces
                 </div>
               )}
 
-              {/* A. UPI SCAN QR INTERFACE — Beautiful PhonePe QR Page */}
-              {paymentMethod === 'upi_qr' && (
-                <div className="space-y-4 animate-fadeIn">
-                  {/* PhonePe Screen Replica Shell - Secure/Non-Clickable */}
-                  <div className="bg-[#111] text-white rounded-2xl p-4 shadow-xl border border-zinc-850 select-none">
-                    
-                    {/* Header: Bank of Baroda - 7516 */}
-                    <div className="flex items-center justify-between pb-3.5 border-b border-zinc-800">
-                      <div className="flex items-center space-x-2.5">
-                        <div className="w-8 h-8 rounded-full bg-orange-600 text-white flex items-center justify-center text-xs font-black font-sans shadow-md">
-                          B
-                        </div>
-                        <div className="text-left font-sans">
-                          <span className="text-xs font-black block tracking-wide text-zinc-100">Bank Of Baroda - 7516</span>
-                          <span className="text-[9px] text-zinc-400 font-mono tracking-wider block font-bold">PRIMARY ACCOUNT linked</span>
-                        </div>
-                      </div>
-                      
-                      {/* Swipe Dots Indicator */}
-                      <div className="flex space-x-1.5">
-                        <div className="w-1.5 h-1.5 rounded-full bg-zinc-600"></div>
-                        <div className="w-1.5 h-1.5 rounded-full bg-white"></div>
-                      </div>
-                    </div>
 
-                    {/* QR Code Container styled with crisp centering */}
-                    <div className="my-5 flex flex-col items-center justify-center relative">
-                      <div className="bg-white p-4 rounded-2xl shadow-inner relative inline-block border border-zinc-200">
-                        <img 
-                          src={qrCodeUrl} 
-                          alt="Payee UPI QR Code" 
-                          referrerPolicy="no-referrer"
-                          className="w-48 h-48 block rounded-lg bg-white"
-                        />
-                        
-                        {/* Custom PhonePe "Pe" Badge Overlay Logo */}
-                        <div className="absolute inset-0 m-auto w-10 h-10 bg-white border-2 border-slate-200 shadow rounded-full flex items-center justify-center">
-                          <div className="w-7 h-7 bg-purple-700 text-white rounded-full flex items-center justify-center text-xs font-black">
-                            पे
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* UPI ID Section with Quick Copy badge */}
-                    <div 
-                      className="bg-zinc-900 border border-zinc-800 px-3.5 py-2.5 rounded-xl flex items-center justify-between text-zinc-300"
-                      onClick={(e) => e.stopPropagation()} // Prevent click propagation on Copy button
-                    >
-                      <div className="text-left font-mono">
-                        <span className="text-[9px] uppercase tracking-wider text-zinc-500 block font-bold">UPI Address Recipient</span>
-                        <span className="text-xs font-black text-zinc-200">{recipientUpiId}</span>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={handleCopyUpi}
-                        className="bg-zinc-800 hover:bg-zinc-700 active:scale-95 text-xs text-white px-3 py-1.5 rounded-lg font-bold flex items-center space-x-1 transition-all cursor-pointer border border-zinc-700"
-                      >
-                        <Copy className="h-3 w-3" />
-                        <span>{copied ? 'Copied!' : 'Copy'}</span>
-                      </button>
-                    </div>
-
-                    {/* Supported Apps List */}
-                    <div className="mt-4 pt-3 border-t border-zinc-800 flex justify-between items-center text-[10px] text-zinc-400">
-                      <span>Supported across all UPI apps</span>
-                      <div className="flex space-x-2 font-black tracking-tighter">
-                        <span className="text-indigo-400">GPay</span>
-                        <span className="text-purple-400">PhonePe</span>
-                        <span className="text-teal-400">Paytm</span>
-                        <span className="text-orange-400">BHIM</span>
-                      </div>
-                    </div>
-
-                  </div>
-
-                  {/* Manual verification guide & direct unlock block */}
-                  <div className="bg-slate-50 border border-slate-200/80 rounded-2xl p-4 space-y-3.5 text-left">
-                    <div className="flex items-start space-x-2.5 text-slate-700">
-                      <div className="w-5 h-5 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center text-xs font-black shrink-0 font-mono mt-0.5">1</div>
-                      <p className="text-xs font-semibold leading-relaxed text-slate-650">
-                        ऊपर दिए गए QR कोड को अपने किसी भी पेमेंट ऐप (जैसे GPay, PhonePe, Paytm, BHIM) से स्कैन करके <strong>₹{unit.price}.00</strong> का भुगतान पूरा करें।
-                      </p>
-                    </div>
-
-                    <div className="flex items-start space-x-2.5 text-slate-700">
-                      <div className="w-5 h-5 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center text-xs font-black shrink-0 font-mono mt-0.5">2</div>
-                      <p className="text-xs font-semibold leading-relaxed text-slate-650 font-sans">
-                        भुगतान पूरा करने के बाद नीचे दिए गए बटन पर क्लिक करें। आपका भुगतान बैंक से सत्यापित होकर पीडीएफ खुल जाएगी।
-                      </p>
-                    </div>
-
-                    <div className="pt-3 border-t border-slate-200/60">
-                      <button
-                        type="button"
-                        onClick={() => handleCheckPaymentDone('Direct UPI QR')}
-                        className="w-full bg-emerald-600 hover:bg-emerald-700 active:scale-[0.98] text-white py-3.5 rounded-xl font-bold text-xs transition-all cursor-pointer flex items-center justify-center space-x-2 shadow-md uppercase tracking-wider font-sans"
-                      >
-                        <Check className="h-4 w-4 text-white font-black" />
-                        <span>भुगतान पूरा हो गया है, पीडीएफ खोलें (Payment Done, Open PDF)</span>
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* B. INSTANT APP TRANSFERS FOR MOBILE DEVICES */}
-              {paymentMethod === 'upi_app' && (
-                <div className="space-y-4 animate-fadeIn">
-                  <span className="text-xs text-slate-500 leading-relaxed font-semibold block text-left">
-                    नीचे दिए गए किसी भी बटन पर क्लिक करके सीधे अपने मोबाइल पेमेंट ऐप से भुगतान पूरा करें। भुगतान पूरा करने के बाद, "भुगतान पूरा हो गया है, पीडीएफ खोलें" पर क्लिक करें।
-                  </span>
-
-                  <div className="flex flex-col space-y-2 font-sans">
-                    <a
-                      href={upiUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="w-full bg-[#5f259f] hover:bg-[#4b1c7e] text-white py-2.5 rounded-xl text-xs font-black tracking-wide text-center flex items-center justify-center space-x-2 shadow-sm transition-all cursor-pointer"
-                    >
-                      <span className="bg-white text-purple-700 rounded px-1.5 py-0.5 text-[8px] font-mono uppercase font-black">Pe</span>
-                      <span>PAY VIA PHONEPE</span>
-                    </a>
-                    
-                    <a
-                      href={upiUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="w-full bg-slate-900 hover:bg-[#1f1f1f] text-white py-2.5 rounded-xl text-xs font-black tracking-wide text-center flex items-center justify-center space-x-2 shadow-sm transition-all cursor-pointer"
-                    >
-                      <span className="bg-gradient-to-r from-blue-500 via-green-500 to-red-500 text-transparent bg-clip-text text-[9px] font-black uppercase">GPay</span>
-                      <span>PAY VIA GOOGLE PAY</span>
-                    </a>
-
-                    <a
-                      href={upiUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="w-full bg-[#00b9f5] hover:bg-[#009bc5] text-white py-2.5 rounded-xl text-xs font-black tracking-wide text-center flex items-center justify-center space-x-2 shadow-sm transition-all cursor-pointer"
-                    >
-                      <span className="bg-white text-blue-600 rounded px-1 text-[8px] font-mono font-black uppercase">Paytm</span>
-                      <span>PAY VIA PAYTM APP</span>
-                    </a>
-                  </div>
-
-                  {/* Seamless One-Click App Approval Block */}
-                  <div className="bg-slate-50 border border-slate-200/80 rounded-2xl p-4 text-left space-y-3.5">
-                    <div className="flex items-start space-x-2.5 text-slate-700">
-                      <div className="w-5 h-5 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center text-xs font-black shrink-0 font-mono mt-0.5">✓</div>
-                      <p className="text-xs font-semibold leading-relaxed text-slate-650 font-sans">
-                        अपने मोबाइल पेमेंट ऐप से भुगतान पूरा करने के बाद नीचे दिए गए बटन पर क्लिक करें। आपका भुगतान बैंक से सत्यापित होकर पीडीएफ खुल जाएगी।
-                      </p>
-                    </div>
-
-                    <div className="pt-2 border-t border-slate-200/60">
-                      <button
-                        type="button"
-                        onClick={() => handleCheckPaymentDone('Direct UPI App')}
-                        className="w-full bg-emerald-600 hover:bg-emerald-700 active:scale-[0.98] text-white py-3.5 rounded-xl font-bold text-xs transition-all cursor-pointer flex items-center justify-center space-x-2 shadow-md uppercase tracking-wider font-sans"
-                      >
-                        <Check className="h-4 w-4 text-white font-black" />
-                        <span>भुगतान पूरा हो गया है, पीडीएफ खोलें (Payment Done, Open PDF)</span>
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="bg-amber-50 border border-amber-100 rounded-xl p-3 text-[11px] text-amber-800 leading-relaxed text-left font-semibold">
-                    💡 If clicking doesn't launch your app instantly, use the <strong>"Scan QR"</strong> options tab at the top.
-                  </div>
-                </div>
-              )}
 
               {/* Owner-only Developer Sandbox Override link */}
               <div className="pt-2.5 border-t border-slate-100 font-sans">
