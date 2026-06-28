@@ -47,6 +47,28 @@ async function startServer() {
     }
   }
 
+  const QUERIES_DB_PATH = path.join(process.cwd(), 'queries_db.json');
+
+  function loadQueries(): any[] {
+    if (fs.existsSync(QUERIES_DB_PATH)) {
+      try {
+        const data = fs.readFileSync(QUERIES_DB_PATH, 'utf8');
+        return JSON.parse(data);
+      } catch (e) {
+        console.error('Failed to read queries_db.json:', e);
+      }
+    }
+    return [];
+  }
+
+  function saveQueries(queries: any[]) {
+    try {
+      fs.writeFileSync(QUERIES_DB_PATH, JSON.stringify(queries, null, 2), 'utf8');
+    } catch (e) {
+      console.error('Failed to write to queries_db.json:', e);
+    }
+  }
+
   // API endpoints for backend persistence
   app.get('/api/health', (req, res) => {
     res.json({ status: 'ok', timestamp: new Date().toISOString() });
@@ -147,6 +169,128 @@ async function startServer() {
       console.error('Razorpay Verification Error:', err);
       res.status(500).json({ error: err.message || 'Failed to verify payment signature' });
     }
+  });
+
+  // Admin configuration paths and helpers
+  const ADMIN_CONFIG_PATH = path.join(process.cwd(), 'admin_config.json');
+
+  function loadAdminConfig() {
+    if (fs.existsSync(ADMIN_CONFIG_PATH)) {
+      try {
+        const data = fs.readFileSync(ADMIN_CONFIG_PATH, 'utf8');
+        return JSON.parse(data);
+      } catch (e) {
+        console.error('Failed to read admin_config.json:', e);
+      }
+    }
+    return {
+      username: 'HandScriptNotesak47',
+      password: 'P@ssw0rdadminak47',
+      securityQuestion: 'What is your primary contact email?',
+      securityAnswer: 'handscriptnotesak47@gmail.com'
+    };
+  }
+
+  function saveAdminConfig(config: any) {
+    try {
+      fs.writeFileSync(ADMIN_CONFIG_PATH, JSON.stringify(config, null, 2), 'utf8');
+    } catch (e) {
+      console.error('Failed to write admin_config.json:', e);
+    }
+  }
+
+  // POST /api/admin/verify-login
+  app.post('/api/admin/verify-login', (req, res) => {
+    const { username, password } = req.body;
+    if (!username || !password) {
+      return res.status(400).json({ error: 'Username and password are required' });
+    }
+    const config = loadAdminConfig();
+    if (username.trim().toLowerCase() === config.username.trim().toLowerCase() && password === config.password) {
+      res.json({ success: true, username: config.username });
+    } else {
+      res.status(401).json({ error: 'Incorrect User ID or Password' });
+    }
+  });
+
+  // POST /api/admin/forgot-password-question
+  app.post('/api/admin/forgot-password-question', (req, res) => {
+    const { username } = req.body;
+    if (!username) {
+      return res.status(400).json({ error: 'User ID is required to fetch security question' });
+    }
+    const config = loadAdminConfig();
+    if (username.trim().toLowerCase() === config.username.trim().toLowerCase()) {
+      res.json({ success: true, securityQuestion: config.securityQuestion });
+    } else {
+      res.status(404).json({ error: 'User ID not found' });
+    }
+  });
+
+  // POST /api/admin/forgot-password-reset
+  app.post('/api/admin/forgot-password-reset', (req, res) => {
+    const { username, securityAnswer, newPassword } = req.body;
+    const config = loadAdminConfig();
+    
+    if (!username || !securityAnswer || !newPassword) {
+      return res.status(400).json({ error: 'All fields are required' });
+    }
+
+    if (username.trim().toLowerCase() !== config.username.trim().toLowerCase()) {
+      return res.status(404).json({ error: 'User ID mismatch' });
+    }
+
+    if (securityAnswer.trim().toLowerCase() !== config.securityAnswer.trim().toLowerCase()) {
+      return res.status(401).json({ error: 'Security answer is incorrect' });
+    }
+
+    // Password strength check: min 8 chars, 1 uppercase, 1 lowercase, 1 number, 1 special char
+    const isStrong = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/.test(newPassword);
+    if (!isStrong) {
+      return res.status(400).json({ 
+        error: 'Password must be at least 8 characters long, contain an uppercase letter, a lowercase letter, a number, and a special character.' 
+      });
+    }
+
+    config.password = newPassword;
+    saveAdminConfig(config);
+    res.json({ success: true });
+  });
+
+  // POST /api/admin/update-credentials
+  app.post('/api/admin/update-credentials', (req, res) => {
+    const { currentPassword, newUsername, newPassword, newSecurityQuestion, newSecurityAnswer } = req.body;
+    const config = loadAdminConfig();
+
+    if (currentPassword !== config.password) {
+      return res.status(401).json({ error: 'Current password is incorrect' });
+    }
+
+    if (newUsername && newUsername.trim()) {
+      config.username = newUsername.trim();
+    }
+
+    if (newPassword) {
+      // Password strength check
+      const isStrong = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/.test(newPassword);
+      if (!isStrong) {
+        return res.status(400).json({ 
+          error: 'Password must be at least 8 characters long, contain an uppercase letter, a lowercase letter, a number, and a special character.' 
+        });
+      }
+      config.password = newPassword;
+    }
+
+    if (newSecurityQuestion && newSecurityQuestion.trim()) {
+      config.securityQuestion = newSecurityQuestion.trim();
+    }
+
+    if (newSecurityAnswer && newSecurityAnswer.trim()) {
+      config.securityAnswer = newSecurityAnswer.trim();
+    }
+
+    saveAdminConfig(config);
+    res.json({ success: true, username: config.username });
   });
 
   // Get notes list
@@ -259,6 +403,38 @@ async function startServer() {
     const updated = currentNotes.filter(unit => unit.id !== unitId);
     saveNotes(updated);
     res.json({ success: true, notes: updated });
+  });
+
+  // GET /api/queries - Load all persistent queries
+  app.get('/api/queries', (req, res) => {
+    res.json(loadQueries());
+  });
+
+  // POST /api/queries - Submit a new query from live web site
+  app.post('/api/queries', (req, res) => {
+    const { query } = req.body;
+    if (!query) {
+      return res.status(400).json({ error: 'Missing query object' });
+    }
+    const currentQueries = loadQueries();
+    // Add new query to the front of the list
+    const updated = [query, ...currentQueries];
+    saveQueries(updated);
+    res.json({ success: true, queries: updated });
+  });
+
+  // POST /api/queries/answer - Mark a query as replied by Admin
+  app.post('/api/queries/answer', (req, res) => {
+    const { queryId } = req.body;
+    if (!queryId) {
+      return res.status(400).json({ error: 'Missing queryId' });
+    }
+    const currentQueries = loadQueries();
+    const updated = currentQueries.map(q => 
+      q.id === queryId ? { ...q, replied: true } : q
+    );
+    saveQueries(updated);
+    res.json({ success: true, queries: updated });
   });
 
   // Serve uploads directory publicly

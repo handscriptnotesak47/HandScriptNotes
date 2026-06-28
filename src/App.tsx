@@ -196,6 +196,33 @@ export default function App() {
       });
   }, []);
 
+  // Load live inquiries/queries from Express server and set up live polling
+  useEffect(() => {
+    const fetchQueries = () => {
+      fetch('/api/queries')
+        .then((res) => {
+          if (!res.ok) throw new Error('Live queries fetch failed');
+          return res.json();
+        })
+        .then((data) => {
+          if (Array.isArray(data)) {
+            setQueries(data);
+          }
+        })
+        .catch((err) => {
+          console.warn('Could not fetch queries from server:', err);
+        });
+    };
+
+    // Initial fetch
+    fetchQueries();
+
+    // Set up polling interval every 8 seconds to fetch real live queries
+    const intervalId = setInterval(fetchQueries, 8000);
+
+    return () => clearInterval(intervalId);
+  }, []);
+
   useEffect(() => {
     localStorage.setItem('hsn_purchases', JSON.stringify(purchases));
   }, [purchases]);
@@ -350,12 +377,28 @@ export default function App() {
       replied: false
     };
 
+    // Optimistically add to state
     setQueries(prev => [newQuery, ...prev]);
     setContactSuccess(true);
     setContactName('');
     setContactEmail('');
     setContactSubject('');
     setContactMessage('');
+
+    fetch('/api/queries', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query: newQuery })
+    })
+    .then(res => res.json())
+    .then(data => {
+      if (data.success && data.queries) {
+        setQueries(data.queries);
+      }
+    })
+    .catch(err => {
+      console.error('Failed to sync query with server:', err);
+    });
     
     showToast('Submit complete! The HandScript specialist inbox received your query.', 'success');
     setTimeout(() => setContactSuccess(false), 5000);
@@ -479,9 +522,26 @@ export default function App() {
   };
 
   const handleAnswerQuery = (queryId: string) => {
+    // Optimistically update locally
     setQueries((prev) => 
       prev.map((q) => (q.id === queryId ? { ...q, replied: true } : q))
     );
+
+    fetch('/api/queries/answer', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ queryId })
+    })
+    .then(res => res.json())
+    .then(data => {
+      if (data.success && data.queries) {
+        setQueries(data.queries);
+      }
+    })
+    .catch(err => {
+      console.error('Failed to sync answered status with server:', err);
+    });
+
     showToast('Simulated response dispatched to student email inbox.', 'success');
   };
 

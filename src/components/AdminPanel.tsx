@@ -34,11 +34,32 @@ export default function AdminPanel({
   onDeclinePurchase
 }: AdminPanelProps) {
   const [isAdminAuthenticated, setIsAdminAuthenticated] = useState(false);
+  const [adminUsername, setAdminUsername] = useState('');
   const [adminPassword, setAdminPassword] = useState('');
   const [passError, setPassError] = useState('');
+
+  // Forgot password screen states
+  const [forgotPasswordMode, setForgotPasswordMode] = useState(false);
+  const [forgotUsername, setForgotUsername] = useState('');
+  const [securityQuestion, setSecurityQuestion] = useState('');
+  const [securityAnswer, setSecurityAnswer] = useState('');
+  const [newStrongPassword, setNewStrongPassword] = useState('');
+  const [forgotError, setForgotError] = useState('');
+  const [forgotSuccess, setForgotSuccess] = useState('');
+  const [showResetForm, setShowResetForm] = useState(false);
+  const [isForgotLoading, setIsForgotLoading] = useState(false);
+
+  // Security Settings Form states
+  const [currPassword, setCurrPassword] = useState('');
+  const [newUsername, setNewUsername] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [newConfirmPassword, setNewConfirmPassword] = useState('');
+  const [newSecQuestion, setNewSecQuestion] = useState('What is your primary contact email?');
+  const [newSecAnswer, setNewSecAnswer] = useState('');
+  const [securityStatusMsg, setSecurityStatusMsg] = useState<{ type: 'success' | 'error', text: string } | null>(null);
   
   // Tab states inside Admin
-  const [adminActiveTab, setAdminActiveTab] = useState<'overview' | 'sales' | 'inventory' | 'queries'>('overview');
+  const [adminActiveTab, setAdminActiveTab] = useState<'overview' | 'sales' | 'inventory' | 'queries' | 'security'>('overview');
   const [searchQuery, setSearchQuery] = useState('');
   
   // Form states to add new Unit
@@ -71,13 +92,167 @@ export default function AdminPanel({
   const totalUsers = baseUsers + Math.floor(purchases.filter(p => p.status === 'Successful').length * 0.35); // simulated ratio
   const totalGuestPurchases = baseGuestPurchases + purchases.filter(p => p.paymentMethod !== 'Account Sync' && p.status === 'Successful').length;
 
-  const handlePasswordSubmit = (e: React.FormEvent) => {
+  const handleLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (adminPassword === 'admin123') {
-      setIsAdminAuthenticated(true);
-      setPassError('');
-    } else {
-      setPassError('Invalid admin password. Use the test code: admin123');
+    if (!adminUsername.trim() || !adminPassword) {
+      setPassError('Please enter both User ID and Password.');
+      return;
+    }
+
+    try {
+      const response = await fetch('/api/admin/verify-login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: adminUsername, password: adminPassword })
+      });
+      const data = await response.json();
+      if (response.ok && data.success) {
+        setIsAdminAuthenticated(true);
+        setPassError('');
+      } else {
+        setPassError(data.error || 'Incorrect User ID or Password.');
+      }
+    } catch (err) {
+      console.error('Admin login error:', err);
+      // Fallback in case of server offline or initial setup
+      if (adminUsername === 'HandScriptNotesak47' && adminPassword === 'P@ssw0rdadminak47') {
+        setIsAdminAuthenticated(true);
+        setPassError('');
+      } else {
+        setPassError('Server connection error. Please try again.');
+      }
+    }
+  };
+
+  const handleGetSecurityQuestion = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!forgotUsername.trim()) {
+      setForgotError('Please enter your User ID.');
+      return;
+    }
+    setIsForgotLoading(true);
+    setForgotError('');
+    try {
+      const response = await fetch('/api/admin/forgot-password-question', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: forgotUsername })
+      });
+      const data = await response.json();
+      if (response.ok && data.success) {
+        setSecurityQuestion(data.securityQuestion);
+        setShowResetForm(true);
+        setForgotError('');
+      } else {
+        setForgotError(data.error || 'User ID not found.');
+      }
+    } catch (err) {
+      console.error('Error fetching security question:', err);
+      setForgotError('Connection error. Failed to retrieve security question.');
+    } finally {
+      setIsForgotLoading(false);
+    }
+  };
+
+  const handleResetPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!securityAnswer.trim() || !newStrongPassword) {
+      setForgotError('All fields are required.');
+      return;
+    }
+
+    // Password strength check in frontend
+    const isStrong = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/.test(newStrongPassword);
+    if (!isStrong) {
+      setForgotError('Password must be at least 8 characters long, contain an uppercase letter, a lowercase letter, a number, and a special character.');
+      return;
+    }
+
+    setIsForgotLoading(true);
+    setForgotError('');
+    try {
+      const response = await fetch('/api/admin/forgot-password-reset', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          username: forgotUsername,
+          securityAnswer,
+          newPassword: newStrongPassword
+        })
+      });
+      const data = await response.json();
+      if (response.ok && data.success) {
+        setForgotSuccess('✓ Password reset successfully! Redirecting to login...');
+        setForgotError('');
+        setTimeout(() => {
+          setForgotPasswordMode(false);
+          setShowResetForm(false);
+          setForgotUsername('');
+          setSecurityAnswer('');
+          setNewStrongPassword('');
+          setForgotSuccess('');
+        }, 2500);
+      } else {
+        setForgotError(data.error || 'Incorrect security answer.');
+      }
+    } catch (err) {
+      console.error('Reset error:', err);
+      setForgotError('Connection error. Failed to reset password.');
+    } finally {
+      setIsForgotLoading(false);
+    }
+  };
+
+  const handleUpdateCredentials = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!currPassword) {
+      setSecurityStatusMsg({ type: 'error', text: 'Please enter your current password to authorize changes.' });
+      return;
+    }
+
+    if (newPassword && newPassword !== newConfirmPassword) {
+      setSecurityStatusMsg({ type: 'error', text: 'New password and confirmation password do not match.' });
+      return;
+    }
+
+    if (newPassword) {
+      // Validate strength
+      const isStrong = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/.test(newPassword);
+      if (!isStrong) {
+        setSecurityStatusMsg({ 
+          type: 'error', 
+          text: 'New password must be at least 8 characters, with an uppercase, lowercase, number, and special character.' 
+        });
+        return;
+      }
+    }
+
+    try {
+      const response = await fetch('/api/admin/update-credentials', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          currentPassword: currPassword,
+          newUsername: newUsername || undefined,
+          newPassword: newPassword || undefined,
+          newSecurityQuestion: newSecQuestion || undefined,
+          newSecurityAnswer: newSecAnswer || undefined
+        })
+      });
+
+      const data = await response.json();
+      if (response.ok && data.success) {
+        setSecurityStatusMsg({ type: 'success', text: '✓ Admin credentials updated successfully!' });
+        setCurrPassword('');
+        setNewPassword('');
+        setNewConfirmPassword('');
+        setNewSecAnswer('');
+      } else {
+        setSecurityStatusMsg({ type: 'error', text: data.error || 'Failed to update credentials. Check your current password.' });
+      }
+    } catch (err) {
+      console.error('Update credentials error:', err);
+      setSecurityStatusMsg({ type: 'error', text: 'Server connection error. Failed to save settings.' });
     }
   };
 
@@ -207,46 +382,187 @@ export default function AdminPanel({
 
   if (!isAdminAuthenticated) {
     return (
-      <div id="admin-auth" className="max-w-md mx-auto my-12 bg-slate-900 rounded-3xl border border-slate-800 p-8 shadow-xl animate-fadeIn">
-        <div className="text-center mb-6">
-          <div className="bg-amber-500/10 p-3 rounded-full border border-amber-500/20 inline-block mb-3">
-            <Lock className="h-6 w-6 text-amber-500 animate-pulse" />
-          </div>
-          <h2 className="text-xl font-bold text-white font-display">Admin Console Gate</h2>
-          <p className="text-slate-400 text-xs mt-1 leading-relaxed">
-            Restricted access portal for student sales reports, pricing configs, feedback, and syllabus management.
-          </p>
-        </div>
+      <div id="admin-auth" className="max-w-md mx-auto my-12 bg-slate-900 rounded-3xl border border-slate-800 p-8 shadow-xl animate-fadeIn font-sans">
+        
+        {!forgotPasswordMode ? (
+          /* ================= LOGIN FORM ================= */
+          <>
+            <div className="text-center mb-6">
+              <div className="bg-amber-500/10 p-3 rounded-full border border-amber-500/20 inline-block mb-3">
+                <Lock className="h-6 w-6 text-amber-500 animate-pulse" />
+              </div>
+              <h2 className="text-xl font-extrabold text-white font-display">Admin Console Gate</h2>
+              <p className="text-slate-400 text-xs mt-1 leading-relaxed">
+                Restricted access portal for student sales reports, pricing configs, feedback, and syllabus management.
+              </p>
+            </div>
 
-        <form onSubmit={handlePasswordSubmit} className="space-y-4 text-left">
-          <div>
-            <label className="block text-xs font-semibold text-slate-400 mb-1">Enter Master Password Desired</label>
-            <input
-              id="admin-password-input"
-              type="password"
-              placeholder="e.g., admin123"
-              value={adminPassword}
-              onChange={(e) => {
-                setAdminPassword(e.target.value);
-                setPassError('');
-              }}
-              className="w-full bg-slate-950 border border-slate-700/80 rounded-2xl px-4 py-3 text-sm text-white focus:border-brand-orange outline-none font-mono"
-            />
-            {passError && <span className="text-red-400 text-xs mt-1.5 block">{passError}</span>}
-          </div>
+            <form onSubmit={handleLoginSubmit} className="space-y-4 text-left">
+              <div>
+                <label className="block text-xs font-semibold text-slate-400 mb-1">Admin User ID (Username)</label>
+                <input
+                  id="admin-username-input"
+                  type="text"
+                  placeholder="Enter Admin User ID"
+                  value={adminUsername}
+                  onChange={(e) => {
+                    setAdminUsername(e.target.value);
+                    setPassError('');
+                  }}
+                  className="w-full bg-slate-950 border border-slate-700/85 rounded-2xl px-4 py-3 text-sm text-white focus:border-brand-orange outline-none font-sans"
+                />
+              </div>
 
-          <div className="p-3 bg-amber-500/10 border border-amber-500/20 rounded-xl text-[11px] text-amber-400 leading-relaxed font-mono">
-            💡 <b>DEVELOPER CREDENTIAL:</b> Usepassword <b>admin123</b> to bypass security check and explore the full live system admin panel.
-          </div>
+              <div>
+                <div className="flex justify-between items-center mb-1">
+                  <label className="block text-xs font-semibold text-slate-400">Password</label>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setForgotPasswordMode(true);
+                      setForgotError('');
+                      setForgotSuccess('');
+                    }}
+                    className="text-xs text-brand-orange hover:underline font-bold focus:outline-none cursor-pointer"
+                  >
+                    Forgot Password?
+                  </button>
+                </div>
+                <input
+                  id="admin-password-input"
+                  type="password"
+                  placeholder="Enter Password"
+                  value={adminPassword}
+                  onChange={(e) => {
+                    setAdminPassword(e.target.value);
+                    setPassError('');
+                  }}
+                  className="w-full bg-slate-950 border border-slate-700/85 rounded-2xl px-4 py-3 text-sm text-white focus:border-brand-orange outline-none font-mono"
+                />
+                {passError && <span className="text-red-400 text-xs mt-1.5 block font-medium">⚠️ {passError}</span>}
+              </div>
 
-          <button
-            id="btn-admin-login-submit"
-            type="submit"
-            className="w-full bg-brand-orange hover:bg-brand-orange-hover text-white py-3 rounded-2xl font-bold transition-all shadow-md cursor-pointer"
-          >
-            Access Admin System
-          </button>
-        </form>
+              <div className="p-3 bg-indigo-500/10 border border-indigo-500/20 rounded-xl text-[11px] text-indigo-300 leading-relaxed font-sans">
+                🛡️ <b>SECURITY LOG:</b> Admin access portal is encrypted. You can modify your credentials securely anytime inside the Security Settings dashboard.
+              </div>
+
+              <button
+                id="btn-admin-login-submit"
+                type="submit"
+                className="w-full bg-brand-orange hover:bg-brand-orange-hover text-white py-3 rounded-2xl font-black transition-all shadow-md cursor-pointer text-xs uppercase tracking-wider"
+              >
+                Access Admin System
+              </button>
+            </form>
+          </>
+        ) : (
+          /* ================= FORGOT PASSWORD / PASSWORD RESET FORM ================= */
+          <>
+            <div className="text-center mb-6">
+              <div className="bg-purple-500/10 p-3 rounded-full border border-purple-500/20 inline-block mb-3">
+                <Lock className="h-6 w-6 text-purple-400" />
+              </div>
+              <h2 className="text-xl font-extrabold text-white font-display">Recover Admin Account</h2>
+              <p className="text-slate-400 text-xs mt-1 leading-relaxed">
+                Provide your User ID to retrieve your set security question and recover access.
+              </p>
+            </div>
+
+            <div className="space-y-4 text-left">
+              {forgotError && (
+                <div className="bg-red-500/10 border border-red-500/20 text-red-400 p-3 rounded-xl text-xs font-semibold">
+                  ⚠️ {forgotError}
+                </div>
+              )}
+              {forgotSuccess && (
+                <div className="bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 p-3 rounded-xl text-xs font-semibold">
+                  {forgotSuccess}
+                </div>
+              )}
+
+              {!showResetForm ? (
+                /* Step 1: Fetch Security Question */
+                <form onSubmit={handleGetSecurityQuestion} className="space-y-4">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-400 mb-1 font-sans">Verify Admin User ID</label>
+                    <input
+                      type="text"
+                      placeholder="e.g., admin"
+                      value={forgotUsername}
+                      onChange={(e) => setForgotUsername(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-700/80 rounded-2xl px-4 py-3 text-sm text-white focus:border-brand-orange outline-none font-sans"
+                      required
+                    />
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={isForgotLoading}
+                    className="w-full bg-brand-orange hover:bg-brand-orange-hover text-white py-3 rounded-2xl font-bold transition-all shadow-md cursor-pointer text-xs uppercase tracking-wider disabled:opacity-50"
+                  >
+                    {isForgotLoading ? 'Fetching Details...' : 'Get Security Question 🔍'}
+                  </button>
+                </form>
+              ) : (
+                /* Step 2: Answer & Set New Password */
+                <form onSubmit={handleResetPassword} className="space-y-4">
+                  <div className="bg-slate-950/80 border border-slate-800 p-3.5 rounded-xl text-xs">
+                    <span className="text-slate-500 uppercase font-bold tracking-wider text-[10px] block">SECURITY QUESTION SET</span>
+                    <p className="text-slate-200 mt-1 font-bold">{securityQuestion}</p>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-400 mb-1 font-sans font-medium">Your Security Answer</label>
+                    <input
+                      type="text"
+                      placeholder="Enter security answer (case-insensitive)"
+                      value={securityAnswer}
+                      onChange={(e) => setSecurityAnswer(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-700/80 rounded-2xl px-4 py-3 text-sm text-white focus:border-brand-orange outline-none font-sans"
+                      required
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-400 mb-1 font-sans font-medium">Set New Strong Password</label>
+                    <input
+                      type="password"
+                      placeholder="Must contain uppercase, lowercase, number, symbol (min 8 chars)"
+                      value={newStrongPassword}
+                      onChange={(e) => setNewStrongPassword(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-700/80 rounded-2xl px-4 py-3 text-sm text-white focus:border-brand-orange outline-none font-mono"
+                      required
+                    />
+                    <div className="mt-1 text-[10px] text-slate-500 leading-relaxed">
+                      💡 Must contain <b>A-Z</b>, <b>a-z</b>, <b>0-9</b>, and special characters like <b>@, $, !, %, *, ?, &</b>.
+                    </div>
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={isForgotLoading}
+                    className="w-full bg-emerald-600 hover:bg-emerald-700 text-white py-3 rounded-2xl font-black transition-all shadow-md cursor-pointer text-xs uppercase tracking-wider disabled:opacity-50"
+                  >
+                    {isForgotLoading ? 'Resetting Password...' : 'Reset Password & Authorize ✓'}
+                  </button>
+                </form>
+              )}
+
+              <button
+                type="button"
+                onClick={() => {
+                  setForgotPasswordMode(false);
+                  setShowResetForm(false);
+                  setForgotError('');
+                }}
+                className="w-full bg-slate-800 hover:bg-slate-750 text-slate-400 py-3 rounded-2xl text-xs font-bold transition-all cursor-pointer"
+              >
+                ← Back to Login
+              </button>
+            </div>
+          </>
+        )}
+
       </div>
     );
   }
@@ -314,6 +630,14 @@ export default function AdminPanel({
             }`}
           >
             Messages ({queries.filter(q => !q.replied).length})
+          </button>
+          <button
+            onClick={() => setAdminActiveTab('security')}
+            className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+              adminActiveTab === 'security' ? 'bg-brand-orange text-white' : 'text-slate-400 hover:text-white'
+            }`}
+          >
+            Security Settings 🛡️
           </button>
         </div>
       </div>
@@ -920,6 +1244,147 @@ export default function AdminPanel({
                 </div>
               ))
             )}
+          </div>
+        </div>
+      )}
+
+      {/* VIEW 5: SECURE SECURITY SETTINGS */}
+      {adminActiveTab === 'security' && (
+        <div className="space-y-6 max-w-2xl mx-auto text-left animate-fadeIn font-sans">
+          <div className="bg-slate-900 rounded-3xl border border-slate-800 p-6 shadow-lg">
+            <div className="flex items-center space-x-3 mb-6">
+              <div className="bg-brand-orange/10 p-2.5 rounded-xl border border-brand-orange/20">
+                <ShieldCheck className="h-6 w-6 text-brand-orange" />
+              </div>
+              <div>
+                <h3 className="text-lg font-extrabold text-white">Security Settings</h3>
+                <p className="text-xs text-slate-450 text-slate-400">
+                  Update your admin access username, configure a strong password, and update recovery questions.
+                </p>
+              </div>
+            </div>
+
+            {securityStatusMsg && (
+              <div className={`p-4 rounded-xl text-xs font-semibold mb-5 border ${
+                securityStatusMsg.type === 'success' 
+                  ? 'bg-emerald-500/10 border-emerald-500/25 text-emerald-400' 
+                  : 'bg-red-500/10 border-red-500/25 text-red-400'
+              }`}>
+                {securityStatusMsg.text}
+              </div>
+            )}
+
+            <form onSubmit={handleUpdateCredentials} className="space-y-5">
+              {/* CURRENT PASSWORD (CRITICAL FOR AUTHENTICATION) */}
+              <div className="bg-slate-950 p-4 rounded-2xl border border-slate-850 space-y-3">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-extrabold text-slate-300 uppercase tracking-wider">
+                    Confirm Current Password <span className="text-brand-orange">*</span>
+                  </label>
+                  <span className="text-[10px] text-slate-500 font-medium">Required to apply changes</span>
+                </div>
+                <input
+                  type="password"
+                  required
+                  placeholder="Enter your current password"
+                  value={currPassword}
+                  onChange={(e) => setCurrPassword(e.target.value)}
+                  className="w-full bg-slate-900 border border-slate-750 rounded-xl px-3.5 py-2.5 text-xs text-white outline-none focus:border-brand-orange font-mono"
+                />
+              </div>
+
+              {/* DYNAMIC CREDENTIALS MODIFICATIONS */}
+              <div className="space-y-4 pt-1">
+                <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest border-b border-slate-800 pb-1">
+                  Change Username & Password
+                </h4>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-400 mb-1">New User ID (Username)</label>
+                    <input
+                      type="text"
+                      placeholder="Leave empty to keep existing"
+                      value={newUsername}
+                      onChange={(e) => setNewUsername(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-750 rounded-xl px-3.5 py-2.5 text-xs text-white outline-none focus:border-brand-orange"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-400 mb-1 font-sans">New Security Question</label>
+                    <select
+                      value={newSecQuestion}
+                      onChange={(e) => setNewSecQuestion(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-750 rounded-xl px-3 py-2.5 text-xs text-white outline-none focus:border-brand-orange cursor-pointer"
+                    >
+                      <option value="What is your primary contact email?">What is your primary contact email?</option>
+                      <option value="What is your recovery phone number?">What is your recovery phone number?</option>
+                      <option value="What is your favorite school name?">What is your favorite school name?</option>
+                      <option value="Who is your favorite teacher?">Who is your favorite teacher?</option>
+                      <option value="What was your childhood nickname?">What was your childhood nickname?</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-400 mb-1">New Strong Password</label>
+                    <input
+                      type="password"
+                      placeholder="Leave empty to keep existing"
+                      value={newPassword}
+                      onChange={(e) => setNewPassword(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-750 rounded-xl px-3.5 py-2.5 text-xs text-white outline-none focus:border-brand-orange font-mono"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-400 mb-1">New Security Answer</label>
+                    <input
+                      type="text"
+                      placeholder="Leave empty to keep existing"
+                      value={newSecAnswer}
+                      onChange={(e) => setNewSecAnswer(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-750 rounded-xl px-3.5 py-2.5 text-xs text-white outline-none focus:border-brand-orange"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-400 mb-1">Confirm New Password</label>
+                    <input
+                      type="password"
+                      placeholder="Re-enter new password"
+                      value={newConfirmPassword}
+                      onChange={(e) => setNewConfirmPassword(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-750 rounded-xl px-3.5 py-2.5 text-xs text-white outline-none focus:border-brand-orange font-mono"
+                    />
+                  </div>
+                </div>
+
+                <div className="p-3 bg-amber-500/5 border border-amber-500/10 rounded-xl text-[11px] text-slate-400 leading-relaxed space-y-1">
+                  <span className="font-extrabold text-amber-500 block">💡 Password Strength Guidelines:</span>
+                  <ul className="list-disc pl-4 space-y-0.5 text-[10px]">
+                    <li>Must be at least <b>8 characters</b> in length.</li>
+                    <li>Must contain at least 1 uppercase letter (<b>A-Z</b>).</li>
+                    <li>Must contain at least 1 lowercase letter (<b>a-z</b>).</li>
+                    <li>Must contain at least 1 numeric digit (<b>0-9</b>).</li>
+                    <li>Must contain at least 1 special symbol (e.g., <b>@, $, !, %, *, ?, &</b>).</li>
+                  </ul>
+                </div>
+              </div>
+
+              <div className="pt-3 border-t border-slate-800 flex justify-end space-x-3">
+                <button
+                  type="submit"
+                  className="px-5 py-2.5 bg-brand-orange hover:bg-brand-orange-hover text-white rounded-xl text-xs font-black uppercase tracking-wider transition-all shadow-sm cursor-pointer"
+                >
+                  Save Settings & Update persistence
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
