@@ -6,6 +6,7 @@ import Razorpay from 'razorpay';
 import { NOTES_LIST } from './src/data';
 import { NotesUnit } from './src/types';
 import AdmZip from 'adm-zip';
+import { PDFDocument } from 'pdf-lib';
 
 async function startServer() {
   const app = express();
@@ -151,6 +152,51 @@ async function startServer() {
   // Get notes list
   app.get('/api/notes', (req, res) => {
     res.json(loadNotes());
+  });
+
+  // GET /api/pdf-preview/:unitId - Dynamically extracts starting 4 pages of any uploaded PDF securely
+  app.get('/api/pdf-preview/:unitId', async (req, res) => {
+    const { unitId } = req.params;
+    const currentNotes = loadNotes();
+    const unit = currentNotes.find(u => u.id === unitId);
+    
+    if (!unit || !unit.pdfUrl) {
+      return res.status(404).send('PDF not found for this unit');
+    }
+
+    try {
+      const relativePath = unit.pdfUrl.startsWith('/') ? unit.pdfUrl.slice(1) : unit.pdfUrl;
+      const filePath = path.join(process.cwd(), relativePath);
+
+      if (!fs.existsSync(filePath)) {
+        return res.status(404).send('PDF file does not exist on server');
+      }
+
+      const pdfBytes = fs.readFileSync(filePath);
+      
+      // Load PDF via pdf-lib
+      const pdfDoc = await PDFDocument.load(pdfBytes);
+      
+      // Create a sub-document with the first 4 pages
+      const subPdfDoc = await PDFDocument.create();
+      const totalPages = pdfDoc.getPageCount();
+      const pagesToCopy = Math.min(4, totalPages);
+      
+      const pageIndices = Array.from({ length: pagesToCopy }, (_, i) => i);
+      const copiedPages = await subPdfDoc.copyPages(pdfDoc, pageIndices);
+      for (const page of copiedPages) {
+        subPdfDoc.addPage(page);
+      }
+      
+      const pdfBytesOut = await subPdfDoc.save();
+      
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `inline; filename="preview_${unitId}.pdf"`);
+      res.send(Buffer.from(pdfBytesOut));
+    } catch (err: any) {
+      console.error('Error generating PDF preview:', err);
+      res.status(500).send(`Failed to generate preview: ${err.message}`);
+    }
   });
 
   // Update notes price

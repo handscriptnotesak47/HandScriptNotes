@@ -19,7 +19,7 @@ export default function DocReader({ unit, isUnlocked, onBuy, onClose }: DocReade
   const isPedagogy1 = unit.examId === 'RSMSSB_BCI' && unit.unitNumber === 1;
   const [currentPageIndex, setCurrentPageIndex] = useState(0);
   const [viewMode, setViewMode] = useState<'scan' | 'pdf'>(
-    (isPedagogy1 && isUnlocked) ? 'pdf' : 'scan'
+    unit.pdfUrl ? 'pdf' : ((isPedagogy1 && isUnlocked) ? 'pdf' : 'scan')
   );
   const [renderedPdfUrl, setRenderedPdfUrl] = useState<string>('');
   const [pdfError, setPdfError] = useState<string | null>(null);
@@ -54,7 +54,10 @@ export default function DocReader({ unit, isUnlocked, onBuy, onClose }: DocReade
       try {
         let actualPdfUrl = unit.pdfUrl || '';
         
-        if (actualPdfUrl.startsWith('indexeddb://')) {
+        // If not unlocked, load the secure 4-page preview from the server instead!
+        if (!isUnlocked) {
+          actualPdfUrl = `/api/pdf-preview/${unit.id}`;
+        } else if (actualPdfUrl.startsWith('indexeddb://')) {
           const storedData = await getPdf(unit.id);
           if (storedData) {
             actualPdfUrl = storedData;
@@ -88,7 +91,7 @@ export default function DocReader({ unit, isUnlocked, onBuy, onClose }: DocReade
         console.error('Error generating safe blob URL for the PDF document:', err);
         if (active) {
           setPdfError(err?.message || 'Failed to parse or convert PDF into locally rendered document.');
-          setRenderedPdfUrl(unit.pdfUrl || '');
+          setRenderedPdfUrl(isUnlocked ? (unit.pdfUrl || '') : `/api/pdf-preview/${unit.id}`);
         }
       }
     };
@@ -973,33 +976,35 @@ export default function DocReader({ unit, isUnlocked, onBuy, onClose }: DocReade
           </div>
           
           <div className="flex items-center space-x-2 sm:space-x-3">
-            {/* View Mode Toggle Switch */}
-            <div className="bg-slate-900 rounded-xl p-0.5 border border-slate-800 flex items-center">
-              <button
-                onClick={() => setViewMode('scan')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center space-x-1 transition-all ${
-                  viewMode === 'scan'
-                    ? 'bg-gradient-to-r from-orange-500 to-amber-500 text-white shadow-md'
-                    : 'text-slate-400 hover:text-white'
-                }`}
-                title="View photorealistic handwritten scan of original PDF"
-              >
-                <Layers className="h-3.5 w-3.5" />
-                <span className="hidden xs:inline">📷 Original Scan</span>
-              </button>
-              <button
-                onClick={() => setViewMode('pdf')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center space-x-1 transition-all ${
-                  viewMode === 'pdf'
-                    ? 'bg-gradient-to-r from-orange-500 to-amber-500 text-white shadow-md'
-                    : 'text-slate-400 hover:text-white'
-                }`}
-                title="View original uploaded PDF document directly"
-              >
-                <span className="text-sm">📄</span>
-                <span>Original PDF</span>
-              </button>
-            </div>
+            {/* View Mode Toggle Switch - only shown if NO uploaded PDF exists */}
+            {!unit.pdfUrl && (
+              <div className="bg-slate-900 rounded-xl p-0.5 border border-slate-800 flex items-center">
+                <button
+                  onClick={() => setViewMode('scan')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center space-x-1 transition-all ${
+                    viewMode === 'scan'
+                      ? 'bg-gradient-to-r from-orange-500 to-amber-500 text-white shadow-md'
+                      : 'text-slate-400 hover:text-white'
+                  }`}
+                  title="View photorealistic handwritten scan of original PDF"
+                >
+                  <Layers className="h-3.5 w-3.5" />
+                  <span className="hidden xs:inline">📷 Original Scan</span>
+                </button>
+                <button
+                  onClick={() => setViewMode('pdf')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center space-x-1 transition-all ${
+                    viewMode === 'pdf'
+                      ? 'bg-gradient-to-r from-orange-500 to-amber-500 text-white shadow-md'
+                      : 'text-slate-400 hover:text-white'
+                  }`}
+                  title="View original uploaded PDF document directly"
+                >
+                  <span className="text-sm">📄</span>
+                  <span>Original PDF</span>
+                </button>
+              </div>
+            )}
 
             <button 
               onClick={onClose} 
@@ -1030,45 +1035,69 @@ export default function DocReader({ unit, isUnlocked, onBuy, onClose }: DocReade
             {viewMode === 'pdf' ? (
               /* ================= 📄 ORIGINAL PDF VIEW ================= */
               <div className="bg-slate-900 w-full rounded-2xl p-1 shadow-2xl border border-slate-800 flex flex-col min-h-[650px] relative">
-                {isUnlocked ? (
+                {(isUnlocked || unit.pdfUrl) ? (
                   <div className="w-full flex-1 flex flex-col">
                     <div className="bg-slate-950 px-4 py-3 rounded-t-2xl border-b border-slate-800 flex items-center justify-between text-xs text-slate-400 font-mono">
                       <div className="flex items-center space-x-2">
-                        <span className="text-emerald-400 font-bold block animate-pulse">● Original PDF Document</span>
+                        {isUnlocked ? (
+                          <span className="text-emerald-400 font-bold block animate-pulse">● Original PDF Document (Unlocked ✅)</span>
+                        ) : (
+                          <span className="text-amber-400 font-bold block animate-pulse">⚠️ Free Demo (Starting 4 Pages Preview)</span>
+                        )}
                         <span className="text-slate-600">|</span>
                         <span className="truncate max-w-[200px] text-slate-300 font-bold" title={unit.pdfName}>{unit.pdfName || 'Attached_Syllabus.pdf'}</span>
                       </div>
-                      <span className="bg-slate-900 px-2.5 py-1 rounded text-[10px] text-slate-400 border border-slate-800 font-bold">AUTHENTIC FORMAT</span>
+                      <span className="bg-slate-900 px-2.5 py-1 rounded text-[10px] text-slate-400 border border-slate-800 font-bold">
+                        {isUnlocked ? 'FULL ACCESS' : 'DEMO PREVIEW'}
+                      </span>
                     </div>
                     {renderedPdfUrl ? (
                       <div className="w-full flex-1 flex flex-col">
-                        {/* Interactive Warning banner with direct open/save actions */}
-                        <div className="bg-[#1e293b] text-amber-200 py-2.5 px-4 text-xs flex flex-col sm:flex-row items-center sm:justify-between border-b border-slate-800 gap-3">
-                          <div className="flex items-center space-x-2">
-                            <span>💡</span>
-                            <span className="text-left leading-relaxed">
-                              <strong>Friendly Reader Tip:</strong> If the document pane below does not render or scroll correctly on your browser/phone, click <strong>"Open PDF in New Window"</strong> to view or print natively.
-                            </span>
-                          </div>
-                          <div className="flex items-center space-x-2 shrink-0">
-                            <a 
-                              href={renderedPdfUrl} 
-                              target="_blank" 
-                              rel="noreferrer"
-                              className="bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold px-3 py-1.5 rounded-lg transition-all text-xs flex items-center space-x-1"
-                            >
-                              <span>Open PDF in New Window</span>
-                              <span className="text-[10px]">↗</span>
-                            </a>
+                        {/* Interactive Warning banner with direct buy action when locked */}
+                        {!isUnlocked ? (
+                          <div className="bg-gradient-to-r from-amber-950/90 to-orange-950/90 text-amber-200 py-3 px-4 text-xs flex flex-col sm:flex-row items-center sm:justify-between border-b border-amber-900/40 gap-3">
+                            <div className="flex items-center space-x-2">
+                              <span>📢</span>
+                              <span className="text-left leading-relaxed font-semibold font-sans">
+                                <strong>आप अभी नोट्स की डेमो पीडीएफ (शुरुआती 4 पृष्ठ) देख रहे हैं।</strong> आगे के पृष्ठ और पूर्ण पीडीएफ डाउनलोड करने के लिए नोट्स खरीदें।
+                              </span>
+                            </div>
                             <button
-                              onClick={handlePrint}
-                              className="bg-slate-800 hover:bg-slate-700 text-slate-100 font-semibold px-3 py-1.5 rounded-lg border border-slate-700 transition-all text-xs flex items-center space-x-1"
+                              onClick={() => onBuy(unit)}
+                              className="bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 active:scale-[0.98] text-white font-extrabold px-4 py-2 rounded-xl transition-all text-xs flex items-center space-x-1 shadow-lg shadow-orange-500/20 cursor-pointer"
                             >
-                              <span>Save PDF</span>
-                              <span>💾</span>
+                              <span>Buy Full PDF (₹{unit.price})</span>
+                              <span className="text-sm">🔓</span>
                             </button>
                           </div>
-                        </div>
+                        ) : (
+                          <div className="bg-[#1e293b] text-amber-200 py-2.5 px-4 text-xs flex flex-col sm:flex-row items-center sm:justify-between border-b border-slate-800 gap-3">
+                            <div className="flex items-center space-x-2">
+                              <span>💡</span>
+                              <span className="text-left leading-relaxed">
+                                <strong>Friendly Reader Tip:</strong> If the document pane below does not render or scroll correctly on your browser/phone, click <strong>"Open PDF in New Window"</strong> to view or print natively.
+                              </span>
+                            </div>
+                            <div className="flex items-center space-x-2 shrink-0">
+                              <a 
+                                href={renderedPdfUrl} 
+                                target="_blank" 
+                                rel="noreferrer"
+                                className="bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold px-3 py-1.5 rounded-lg transition-all text-xs flex items-center space-x-1"
+                              >
+                                <span>Open PDF in New Window</span>
+                                <span className="text-[10px]">↗</span>
+                              </a>
+                              <button
+                                onClick={handlePrint}
+                                className="bg-slate-800 hover:bg-slate-700 text-slate-100 font-semibold px-3 py-1.5 rounded-lg border border-slate-700 transition-all text-xs flex items-center space-x-1"
+                              >
+                                <span>Save PDF</span>
+                                <span>💾</span>
+                              </button>
+                            </div>
+                          </div>
+                        )}
                         <iframe 
                           src={renderedPdfUrl} 
                           className="w-full h-[650px] rounded-b-2xl bg-slate-950 border-none"
