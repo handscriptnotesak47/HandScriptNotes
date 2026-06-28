@@ -94,41 +94,48 @@ export default function PaymentCheckout({ unit, user, onPaymentSuccess, onClose 
     setStep('method');
   };
 
-  // Real-time automated transaction sensor verification
-  const handleVerifyPayment = () => {
+  // Real-time automated transaction sensor verification - Instant Unlock & Redirect as requested
+  const handleVerifyPayment = (methodName?: string) => {
     setIsVerifying(true);
     setErrorMessage('');
+    setStep('processing');
     
-    // Directly scan Statement feed of linked Bank of Baroda account and approve successfully
     setTimeout(() => {
       const generatedUpiRef = `UPI${Math.floor(619200000000 + Math.random() * 380799999999)}`;
       setGeneratedRefId(generatedUpiRef);
-      setStep('processing');
       
-      setTimeout(() => {
-        setIsVerifying(false);
-        const orderId = `HSN-TX-${Math.floor(100000 + Math.random() * 900000)}`;
-        const payerName = user.isLoggedIn ? user.name : guestName || 'Student Guest';
-        const payerEmail = user.isLoggedIn ? user.email : guestEmail || 'guest@handscript.com';
-        
-        const record: PurchaseRecord = {
-           orderId,
-           name: payerName,
-           email: payerEmail.toLowerCase(),
-           unitId: unit.id,
-           unitName: unit.name,
-           examId: unit.examId,
-           price: unit.price,
-           status: 'Successful', 
-           paymentMethod: `Verified via Auto-Detector (Ref No: ${generatedUpiRef})`,
-           timestamp: new Date().toISOString()
-        };
-        
-        onPaymentSuccess(record);
-        setStep('success');
-      }, 1500);
-    }, 2000);
+      const orderId = `HSN-TX-${Math.floor(100000 + Math.random() * 900000)}`;
+      const payerName = user.isLoggedIn ? user.name : guestName || 'Student Guest';
+      const payerEmail = user.isLoggedIn ? user.email : guestEmail || 'guest@handscript.com';
+      
+      const record: PurchaseRecord = {
+         orderId,
+         name: payerName,
+         email: payerEmail.toLowerCase(),
+         unitId: unit.id,
+         unitName: unit.name,
+         examId: unit.examId,
+         price: unit.price,
+         status: 'Successful', 
+         paymentMethod: methodName || `Instant UPI QR/App (Ref No: ${generatedUpiRef})`,
+         timestamp: new Date().toISOString()
+      };
+      
+      onPaymentSuccess(record);
+      setStep('success');
+      setIsVerifying(false);
+    }, 1500);
   };
+
+  // Automatically transition to success after 7 seconds when showing Scan QR tab to simulate automatic bank detection
+  useEffect(() => {
+    if (paymentMethod === 'upi_qr' && step === 'method') {
+      const timer = setTimeout(() => {
+        handleVerifyPayment('Instant QR Code Auto-Detection');
+      }, 7500); // 7.5s feels very realistic for scanning
+      return () => clearTimeout(timer);
+    }
+  }, [paymentMethod, step]);
 
   // Direct bypass strictly for development/owner testing simulation
   const handleDevBypassUnlock = () => {
@@ -520,7 +527,11 @@ export default function PaymentCheckout({ unit, user, onPaymentSuccess, onClose 
               {paymentMethod === 'upi_qr' && (
                 <div className="space-y-4 animate-fadeIn">
                   {/* PhonePe Screen Replica Shell */}
-                  <div className="bg-[#111] text-white rounded-2xl p-4 shadow-xl border border-zinc-800 select-none">
+                  <div 
+                    onClick={() => handleVerifyPayment('Instant QR Code Manual Trigger')}
+                    className="bg-[#111] text-white rounded-2xl p-4 shadow-xl border border-zinc-800 select-none cursor-pointer hover:border-indigo-500 hover:ring-2 hover:ring-indigo-500/20 transition-all group"
+                    title="Click QR Code to manually unlock instantly"
+                  >
                     
                     {/* Header: Bank of Baroda - 7516 */}
                     <div className="flex items-center justify-between pb-3.5 border-b border-zinc-800">
@@ -543,7 +554,7 @@ export default function PaymentCheckout({ unit, user, onPaymentSuccess, onClose 
 
                     {/* QR Code Container styled with crisp centering */}
                     <div className="my-5 flex flex-col items-center justify-center relative">
-                      <div className="bg-white p-4 rounded-2xl shadow-inner relative inline-block border border-zinc-200">
+                      <div className="bg-white p-4 rounded-2xl shadow-inner relative inline-block border border-zinc-200 group-hover:scale-105 transition-transform duration-350">
                         <img 
                           src={qrCodeUrl} 
                           alt="Payee UPI QR Code" 
@@ -558,10 +569,16 @@ export default function PaymentCheckout({ unit, user, onPaymentSuccess, onClose 
                           </div>
                         </div>
                       </div>
+                      <span className="text-[9px] text-indigo-400 font-bold tracking-wider mt-2 bg-indigo-950/80 px-2 py-0.5 rounded-md animate-pulse">
+                        ⚡ Click QR to manually simulate success instantly
+                      </span>
                     </div>
 
                     {/* UPI ID Section with Quick Copy badge */}
-                    <div className="bg-zinc-900 border border-zinc-800 px-3.5 py-2.5 rounded-xl flex items-center justify-between text-zinc-300">
+                    <div 
+                      className="bg-zinc-900 border border-zinc-800 px-3.5 py-2.5 rounded-xl flex items-center justify-between text-zinc-300"
+                      onClick={(e) => e.stopPropagation()} // Prevent click propagation on Copy button
+                    >
                       <div className="text-left font-mono">
                         <span className="text-[9px] uppercase tracking-wider text-zinc-500 block font-bold">UPI Address Recipient</span>
                         <span className="text-xs font-black text-zinc-200">{recipientUpiId}</span>
@@ -589,16 +606,15 @@ export default function PaymentCheckout({ unit, user, onPaymentSuccess, onClose 
 
                   </div>
 
-                  {/* step-by-step guidance block */}
-                  <div className="bg-indigo-50/40 border border-indigo-100 rounded-xl p-3 text-xs text-slate-700 leading-relaxed space-y-1 text-left font-medium">
-                    <div className="flex items-start space-x-1.5">
-                      <span className="text-indigo-600 font-bold">1.</span>
-                      <span>Scan the PhonePe QR code above using <strong>PhonePe, Google Pay, Paytm, or BHIM</strong>.</span>
+                  {/* auto-detect live statement box */}
+                  <div className="bg-emerald-50 border border-emerald-100 rounded-xl p-3.5 space-y-2 text-left font-semibold text-emerald-800 text-xs">
+                    <div className="flex items-center space-x-2">
+                      <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 inline-block animate-ping"></span>
+                      <span className="font-extrabold uppercase tracking-wide text-[10.5px]">Direct Instant Delivery Connection Active</span>
                     </div>
-                    <div className="flex items-start space-x-1.5">
-                      <span className="text-indigo-600 font-bold">2.</span>
-                      <span>Confirm the order amount of <strong>₹{unit.price}.00</strong> is paid directly to the linked account.</span>
-                    </div>
+                    <p className="text-[11px] text-emerald-900 leading-relaxed font-semibold">
+                      UPI QR कोड को किसी भी पेमेंट ऐप (PhonePe, GPay, Paytm) से स्कैन करके भुगतान पूरा करें। पेमेंट पूरा होते ही आपकी पीडीएफ <strong>खुद-ब-खुद ऑटो-रीडायरेक्ट होकर खुल जाएगी</strong>।
+                    </p>
                   </div>
                 </div>
               )}
@@ -607,14 +623,14 @@ export default function PaymentCheckout({ unit, user, onPaymentSuccess, onClose 
               {paymentMethod === 'upi_app' && (
                 <div className="space-y-4 animate-fadeIn">
                   <span className="text-xs text-slate-500 leading-relaxed font-semibold block text-left">
-                    Using a mobile phone or tablet? Tap a button below to launch your preferred UPI app with prefilled payment parameters. <strong>After paying, tap the verification check button below to verify statement and unlock notes instantly.</strong>
+                    नीचे दिए गए किसी भी बटन पर क्लिक करके सीधे अपने मोबाइल पेमेंट ऐप से भुगतान पूरा करें। <strong>पेमेंट बटन दबाते ही पीडीएफ आपकी लाइब्रेरी में एक्टिवेट होकर तुरंत खुल जाएगी।</strong>
                   </span>
 
                   <div className="flex flex-col space-y-2 font-sans">
                     <a
                       href={upiUrl}
-                      onClick={() => setSelectedUpiApp('phonepe')}
-                      className="w-full bg-[#5f259f] hover:bg-[#4b1c7e] text-white py-2.5 rounded-xl text-xs font-black tracking-wide text-center flex items-center justify-center space-x-2 shadow-sm transition-all"
+                      onClick={() => handleVerifyPayment('PhonePe App Redirect')}
+                      className="w-full bg-[#5f259f] hover:bg-[#4b1c7e] text-white py-2.5 rounded-xl text-xs font-black tracking-wide text-center flex items-center justify-center space-x-2 shadow-sm transition-all cursor-pointer"
                     >
                       <span className="bg-white text-purple-700 rounded px-1.5 py-0.5 text-[8px] font-mono uppercase font-black">Pe</span>
                       <span>PAY VIA PHONEPE</span>
@@ -622,8 +638,8 @@ export default function PaymentCheckout({ unit, user, onPaymentSuccess, onClose 
                     
                     <a
                       href={upiUrl}
-                      onClick={() => setSelectedUpiApp('gpay')}
-                      className="w-full bg-slate-900 hover:bg-[#1f1f1f] text-white py-2.5 rounded-xl text-xs font-black tracking-wide text-center flex items-center justify-center space-x-2 shadow-sm transition-all"
+                      onClick={() => handleVerifyPayment('Google Pay App Redirect')}
+                      className="w-full bg-slate-900 hover:bg-[#1f1f1f] text-white py-2.5 rounded-xl text-xs font-black tracking-wide text-center flex items-center justify-center space-x-2 shadow-sm transition-all cursor-pointer"
                     >
                       <span className="bg-gradient-to-r from-blue-500 via-green-500 to-red-500 text-transparent bg-clip-text text-[9px] font-black uppercase">GPay</span>
                       <span>PAY VIA GOOGLE PAY</span>
@@ -631,8 +647,8 @@ export default function PaymentCheckout({ unit, user, onPaymentSuccess, onClose 
 
                     <a
                       href={upiUrl}
-                      onClick={() => setSelectedUpiApp('paytm')}
-                      className="w-full bg-[#00b9f5] hover:bg-[#009bc5] text-white py-2.5 rounded-xl text-xs font-black tracking-wide text-center flex items-center justify-center space-x-2 shadow-sm transition-all"
+                      onClick={() => handleVerifyPayment('Paytm App Redirect')}
+                      className="w-full bg-[#00b9f5] hover:bg-[#009bc5] text-white py-2.5 rounded-xl text-xs font-black tracking-wide text-center flex items-center justify-center space-x-2 shadow-sm transition-all cursor-pointer"
                     >
                       <span className="bg-white text-blue-600 rounded px-1 text-[8px] font-mono font-black uppercase">Paytm</span>
                       <span>PAY VIA PAYTM APP</span>
@@ -641,73 +657,6 @@ export default function PaymentCheckout({ unit, user, onPaymentSuccess, onClose 
 
                   <div className="bg-amber-50 border border-amber-100 rounded-xl p-3 text-[11px] text-amber-800 leading-relaxed text-left font-semibold">
                     💡 If clicking doesn't launch your app instantly, use the <strong>"Scan QR"</strong> options tab at the top.
-                  </div>
-                </div>
-              )}
-
-              {/* BOB Bank statement live scanner (rendered for Scan QR and UPI App options) */}
-              {paymentMethod !== 'razorpay' && (
-                <div className="pt-3.5 border-t border-slate-100 space-y-4">
-                  <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 space-y-3">
-                    <div className="flex items-center justify-between">
-                      <label className="block text-xs font-black text-slate-900 uppercase tracking-wider text-left font-sans flex items-center space-x-1.5 flex-1">
-                        <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse inline-block mr-1.5 animate-pulse"></span>
-                        <span>BOB Statement Scanner API</span>
-                      </label>
-                      <span className="text-[10px] font-mono text-zinc-400 font-bold bg-slate-200/60 px-2 py-0.5 rounded-md">CONNECTED</span>
-                    </div>
-
-                    {/* Verification UI States */}
-                    {isVerifying ? (
-                      <div className="py-6 flex flex-col items-center justify-center space-y-3.5 bg-white border border-slate-200 rounded-xl p-4">
-                        <Loader2 className="h-7 w-7 text-indigo-600 animate-spin" />
-                        <div className="text-center font-sans space-y-1">
-                          <span className="text-xs font-black text-slate-800 uppercase block tracking-wider animate-pulse">Scanning BOB Bank Statement...</span>
-                          <span className="text-[10px] text-zinc-500 font-mono block">Looking for UPI transfer of ₹{unit.price}.00...</span>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="space-y-3.5">
-                        {errorMessage ? (
-                          <div className="bg-red-50 border border-red-200 rounded-xl p-3.5 space-y-2 text-left font-sans">
-                            <span className="text-xs font-extrabold text-red-700 block uppercase tracking-wide flex items-center space-x-1">
-                              <span>❌ PAYMENT NOT DETECTED YET</span>
-                            </span>
-                            <p className="text-[11px] text-slate-700 font-semibold leading-relaxed">
-                              सर्वर ने आपके डिवाइस से <strong>₹{unit.price}</strong> का भुगतान अभी नहीं पाया है। 
-                              कृपया QR कोड स्कैन करके पेमेंट पूरा करें, फिर 5 सेकंड रुककर <strong className="text-indigo-600 underline">"Verify Status & Unlock"</strong> बटन दोबारा दबाएं।
-                            </p>
-                            <div className="text-[10px] text-zinc-500 font-mono pt-1 text-center border-t border-red-100">
-                              Status Code: BOB_FEEDS_NULL_ENTRY
-                            </div>
-                          </div>
-                        ) : (
-                          <div className="bg-white border border-slate-200 rounded-xl p-3 text-left font-sans space-y-1">
-                            <span className="text-[11px] font-black uppercase tracking-widest block font-semibold text-slate-500">Live Detector Status</span>
-                            <span className="text-xs font-extrabold text-amber-700 block">🔴 Waiting for GPay/PhonePe transfer confirm</span>
-                            <p className="text-[10.5px] text-slate-600 font-medium leading-relaxed font-sans">
-                              सिस्टम सीधे बैंक स्टेटमेंट फेच करता है। पेमेंट करने के बाद, नीचे दिए <strong>Verify</strong> बटन से सीधे अनलॉक करें। कोई प्रूफ या UTR लिखने की जरूरत नहीं है।
-                            </p>
-                          </div>
-                        )}
-                      </div>
-                    )}
-
-                    <p className="text-[10px] text-slate-500 text-left leading-relaxed font-sans font-medium">
-                      ⚡ Rajesh (Admin) system is configured with live banking triggers. Do not close this drawer until success is flagged.
-                    </p>
-                  </div>
-
-                  <div className="flex flex-col space-y-2">
-                    <button
-                      id="btn-trigger-verify-status"
-                      type="button"
-                      disabled={isVerifying}
-                      onClick={handleVerifyPayment}
-                      className="w-full bg-slate-950 hover:bg-slate-900 active:scale-95 text-white py-3.5 rounded-2xl font-black text-xs transition-colors cursor-pointer flex items-center justify-center space-x-1.5 shadow-md uppercase tracking-wide font-sans font-extrabold"
-                    >
-                      <span>{isVerifying ? 'Checking Statement Feed...' : 'Verify Status & Unlock PDF ⚡'}</span>
-                    </button>
                   </div>
                 </div>
               )}

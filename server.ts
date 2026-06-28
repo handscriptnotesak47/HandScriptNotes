@@ -5,6 +5,7 @@ import crypto from 'crypto';
 import Razorpay from 'razorpay';
 import { NOTES_LIST } from './src/data';
 import { NotesUnit } from './src/types';
+import AdmZip from 'adm-zip';
 
 async function startServer() {
   const app = express();
@@ -48,6 +49,33 @@ async function startServer() {
   // API endpoints for backend persistence
   app.get('/api/health', (req, res) => {
     res.json({ status: 'ok', timestamp: new Date().toISOString() });
+  });
+
+  // GET /api/download-images - Packages all website images into a ZIP file and sends it to the user
+  app.get('/api/download-images', (req, res) => {
+    try {
+      const zip = new AdmZip();
+      
+      const imagesDir = path.join(process.cwd(), 'src', 'assets', 'images');
+      if (fs.existsSync(imagesDir)) {
+        const files = fs.readdirSync(imagesDir);
+        for (const file of files) {
+          const filePath = path.join(imagesDir, file);
+          if (fs.statSync(filePath).isFile()) {
+            zip.addLocalFile(filePath);
+          }
+        }
+      }
+      
+      const zipBuffer = zip.toBuffer();
+      
+      res.setHeader('Content-Type', 'application/zip');
+      res.setHeader('Content-Disposition', 'attachment; filename=website_images.zip');
+      res.send(zipBuffer);
+    } catch (err: any) {
+      console.error('Error creating images ZIP:', err);
+      res.status(500).json({ error: 'Failed to create images ZIP file' });
+    }
   });
 
   // Razorpay instance lazy initialization

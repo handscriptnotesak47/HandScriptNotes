@@ -20,6 +20,8 @@ import PaymentCheckout from './components/PaymentCheckout';
 import UserDashboard from './components/UserDashboard';
 import AdminPanel from './components/AdminPanel';
 
+import studentLearningBanner from './assets/images/student_learning_banner_1780204047479.png';
+
 export default function App() {
   // Navigation State
   const [activeTab, setActiveTab] = useState<string>('home'); // home, exams, dashboard, admin, contact, about, policy_*
@@ -643,7 +645,7 @@ export default function App() {
                   <div className="absolute inset-0 bg-gradient-to-tr from-amber-200/40 via-amber-100/10 to-transparent blur-2xl rounded-3xl -z-10" />
                   <div className="bg-white p-3 rounded-3xl border border-slate-200/80 shadow-2xl overflow-hidden group hover:scale-[1.01] transition-all duration-300">
                     <img 
-                      src="/src/assets/images/student_learning_banner_1780204047479.png" 
+                      src={studentLearningBanner} 
                       alt="Student Study Notebook and Desk Vector Illustration" 
                       className="w-full h-auto aspect-[16/9] lg:aspect-[4/3] object-cover rounded-2xl"
                       referrerPolicy="no-referrer"

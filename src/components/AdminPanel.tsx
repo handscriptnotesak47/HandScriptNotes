@@ -4,7 +4,7 @@
  */
 
 import React, { useState } from 'react';
-import { ShieldCheck, IndianRupee, PieChart, Users, ArrowUpRight, CheckCircle2, MessageSquare, Clipboard, Edit2, Plus, Trash2, Mail, Lock, BarChart3, TrendingUp, Search, Calendar } from 'lucide-react';
+import { ShieldCheck, IndianRupee, PieChart, Users, ArrowUpRight, CheckCircle2, MessageSquare, Clipboard, Edit2, Plus, Trash2, Mail, Lock, BarChart3, TrendingUp, Search, Calendar, Download } from 'lucide-react';
 import { PurchaseRecord, ContactQuery, NotesUnit, ExamCategoryType } from '../types';
 import { savePdf } from '../utils/pdfStorage';
 
@@ -269,6 +269,16 @@ export default function AdminPanel({
           <p className="text-slate-450 text-xs text-slate-400">
             Control center to manipulate notes inventories, adjust pricing, read student feed, and review revenue graphs.
           </p>
+          <div className="mt-3">
+            <a 
+              href="/api/download-images" 
+              download="website_images.zip"
+              className="inline-flex items-center space-x-2 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 active:scale-95 text-xs text-slate-200 hover:text-white font-bold rounded-xl transition-all shadow-sm border border-slate-700/80 cursor-pointer"
+            >
+              <Download className="h-3.5 w-3.5 text-brand-orange" />
+              <span>Download All Website Images (ZIP) 📦</span>
+            </a>
+          </div>
         </div>
 
         {/* Console Nav Tabs */}
