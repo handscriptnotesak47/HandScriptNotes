@@ -235,6 +235,119 @@ export default function App() {
     localStorage.setItem('hsn_user_session', JSON.stringify(user));
   }, [user]);
 
+  // Dynamic Technical SEO & Google Search snippet metadata updater
+  useEffect(() => {
+    let title = "HandScript Notes - Premium Handwritten Notes for CS Exams";
+    let description = "Unlock premium, high-quality handwritten notes compiled by Rajesh Ji for competitive exams including RSMSSB BCI, RSMSSB SCI, UP LT Grade, and UGC NET CS.";
+    let canonicalUrl = "https://handscriptnotes.com/";
+
+    switch (activeTab) {
+      case 'home':
+        title = "HandScript Notes | Best Handwritten Notes for Computer Science Exams";
+        description = "Get Rajesh Ji's premium handwritten computer science notes for RSMSSB BCI, RSMSSB SCI, UP LT Grade, and UGC NET CS. High-quality exam preparation material.";
+        canonicalUrl = window.location.origin + "/#home";
+        break;
+      case 'exams':
+        title = "Syllabus-Wise Exam Notes - RSMSSB, UP LT, UGC NET CS | HandScript Notes";
+        description = "Explore exam-specific handwritten notes with full syllabus coverage. Buy unit-wise high-fidelity copy books for RSMSSB BCI, RSMSSB SCI, and UGC NET CS.";
+        canonicalUrl = window.location.origin + "/#exams";
+        break;
+      case 'dashboard':
+        title = "My Learning Library - Unlocked Notes Dashboard | HandScript Notes";
+        description = "Access all your purchased handwritten notes, track your prep progress, and download high-quality PDFs for quick revisions.";
+        canonicalUrl = window.location.origin + "/#dashboard";
+        break;
+      case 'contact':
+        title = "Contact Rajesh Ji - Customer Support Helpdesk | HandScript Notes";
+        description = "Got queries about exam syllabus, PDF downloads, or payments? Raise an inquiry directly with Rajesh Ji for 1-to-1 assistance.";
+        canonicalUrl = window.location.origin + "/#contact";
+        break;
+      case 'about':
+        title = "About Us & Rajesh Ji's Vision | HandScript Notes";
+        description = "Learn more about HandScript Notes, our rigorous compilation standard, and our mission to provide the best offline revision tools for CS aspirants.";
+        canonicalUrl = window.location.origin + "/#about";
+        break;
+      case 'policy_privacy':
+        title = "Privacy Policy | HandScript Notes";
+        description = "Read our Privacy Policy to understand how HandScript Notes protects your account synchronization details, transaction records, and user data.";
+        canonicalUrl = window.location.origin + "/#privacy";
+        break;
+      case 'policy_refund':
+        title = "Cancellation & Refund Policy | HandScript Notes";
+        description = "Our Cancellation & Refund Policy outlines details regarding UTR bank transfer approvals and transaction verification support.";
+        canonicalUrl = window.location.origin + "/#refund";
+        break;
+      case 'policy_terms':
+        title = "Terms & Conditions - User License Guidelines | HandScript Notes";
+        description = "Review the terms, conditions, and single-license rights for purchasing and utilizing Rajesh Ji's hand-compiled revisions notes.";
+        canonicalUrl = window.location.origin + "/#terms";
+        break;
+      case 'admin':
+        title = "Secure Admin Console Gate - HandScript Notes";
+        description = "Restricted administration portal for syllabus compilation, inventory tracking, feedback replies, and manual payment approvals.";
+        canonicalUrl = window.location.origin + "/#admin";
+        break;
+    }
+
+    // 1. Update Document HTML Title
+    document.title = title;
+
+    // 2. Update Document HTML Meta Description
+    let metaDesc = document.querySelector('meta[name="description"]');
+    if (!metaDesc) {
+      metaDesc = document.createElement('meta');
+      metaDesc.setAttribute('name', 'description');
+      document.head.appendChild(metaDesc);
+    }
+    metaDesc.setAttribute('content', description);
+
+    // 3. Update Canonical URL
+    let canonicalLink = document.querySelector('link[rel="canonical"]');
+    if (!canonicalLink) {
+      canonicalLink = document.createElement('link');
+      canonicalLink.setAttribute('rel', 'canonical');
+      document.head.appendChild(canonicalLink);
+    }
+    canonicalLink.setAttribute('href', canonicalUrl);
+
+    // 4. Update Open Graph (Facebook/LinkedIn) Meta Tags
+    const ogTitle = document.querySelector('meta[property="og:title"]') || document.createElement('meta');
+    ogTitle.setAttribute('property', 'og:title');
+    ogTitle.setAttribute('content', title);
+    if (!ogTitle.parentNode) document.head.appendChild(ogTitle);
+
+    const ogDesc = document.querySelector('meta[property="og:description"]') || document.createElement('meta');
+    ogDesc.setAttribute('property', 'og:description');
+    ogDesc.setAttribute('content', description);
+    if (!ogDesc.parentNode) document.head.appendChild(ogDesc);
+
+    const ogUrl = document.querySelector('meta[property="og:url"]') || document.createElement('meta');
+    ogUrl.setAttribute('property', 'og:url');
+    ogUrl.setAttribute('content', window.location.origin);
+    if (!ogUrl.parentNode) document.head.appendChild(ogUrl);
+
+    // 5. Dynamic JSON-LD Structured Data for perfect Google snippets
+    let schemaScript = document.getElementById('seo-dynamic-webpage-schema');
+    if (!schemaScript) {
+      schemaScript = document.createElement('script');
+      schemaScript.setAttribute('id', 'seo-dynamic-webpage-schema');
+      schemaScript.setAttribute('type', 'application/ld+json');
+      document.head.appendChild(schemaScript);
+    }
+    schemaScript.textContent = JSON.stringify({
+      "@context": "https://schema.org",
+      "@type": "WebPage",
+      "name": title,
+      "description": description,
+      "url": canonicalUrl,
+      "isPartOf": {
+        "@type": "WebSite",
+        "name": "HandScript Notes",
+        "url": window.location.origin
+      }
+    });
+  }, [activeTab]);
+
   // Self-healing migration to move raw base64 PDFs from localStorage into modern high-quota IndexedDB storage
   useEffect(() => {
     let active = true;
