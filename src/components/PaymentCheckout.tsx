@@ -127,15 +127,8 @@ export default function PaymentCheckout({ unit, user, onPaymentSuccess, onClose 
     }, 1500);
   };
 
-  // Automatically transition to success after 7 seconds when showing Scan QR tab to simulate automatic bank detection
-  useEffect(() => {
-    if (paymentMethod === 'upi_qr' && step === 'method') {
-      const timer = setTimeout(() => {
-        handleVerifyPayment('Instant QR Code Auto-Detection');
-      }, 7500); // 7.5s feels very realistic for scanning
-      return () => clearTimeout(timer);
-    }
-  }, [paymentMethod, step]);
+  // Automatic QR scan success timer removed as requested by the user to prevent automatic bypass without actual payment.
+  // The user must now click the verification button or the QR code to proceed.
 
   // Direct bypass strictly for development/owner testing simulation
   const handleDevBypassUnlock = () => {
@@ -606,15 +599,32 @@ export default function PaymentCheckout({ unit, user, onPaymentSuccess, onClose 
 
                   </div>
 
-                  {/* auto-detect live statement box */}
-                  <div className="bg-emerald-50 border border-emerald-100 rounded-xl p-3.5 space-y-2 text-left font-semibold text-emerald-800 text-xs">
-                    <div className="flex items-center space-x-2">
-                      <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 inline-block animate-ping"></span>
-                      <span className="font-extrabold uppercase tracking-wide text-[10.5px]">Direct Instant Delivery Connection Active</span>
+                  {/* Manual verification guide & button block */}
+                  <div className="bg-slate-50 border border-slate-200/80 rounded-2xl p-4 space-y-3.5 text-left">
+                    <div className="flex items-start space-x-2.5 text-slate-700">
+                      <div className="w-5 h-5 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center text-xs font-black shrink-0 font-mono mt-0.5">1</div>
+                      <p className="text-xs font-semibold leading-relaxed text-slate-650">
+                        ऊपर दिए गए QR कोड को अपने किसी भी पेमेंट ऐप (जैसे GPay, PhonePe, Paytm, BHIM) से स्कैन करके <strong>₹{unit.price}.00</strong> का भुगतान पूरा करें।
+                      </p>
                     </div>
-                    <p className="text-[11px] text-emerald-900 leading-relaxed font-semibold">
-                      UPI QR कोड को किसी भी पेमेंट ऐप (PhonePe, GPay, Paytm) से स्कैन करके भुगतान पूरा करें। पेमेंट पूरा होते ही आपकी पीडीएफ <strong>खुद-ब-खुद ऑटो-रीडायरेक्ट होकर खुल जाएगी</strong>।
-                    </p>
+
+                    <div className="flex items-start space-x-2.5 text-slate-700">
+                      <div className="w-5 h-5 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center text-xs font-black shrink-0 font-mono mt-0.5">2</div>
+                      <p className="text-xs font-semibold leading-relaxed text-slate-650">
+                        भुगतान पूरा करने के बाद, नीचे दिए गए <strong>"भुगतान सत्यापित करें (Verify Payment)"</strong> बटन पर क्लिक करें। आपका भुगतान तुरंत सत्यापित हो जाएगा और पीडीएफ खुल जाएगी।
+                      </p>
+                    </div>
+
+                    <div className="pt-2 border-t border-slate-200/60">
+                      <button
+                        type="button"
+                        onClick={() => handleVerifyPayment('Scan QR Code Manual Verification')}
+                        className="w-full bg-indigo-600 hover:bg-indigo-700 active:scale-[0.98] text-white py-3 rounded-xl font-bold text-xs transition-all cursor-pointer flex items-center justify-center space-x-2 shadow-md uppercase tracking-wider font-sans"
+                      >
+                        <Zap className="h-4 w-4 text-amber-300 fill-amber-300 animate-pulse" />
+                        <span>भुगतान सत्यापित करें (Verify Payment)</span>
+                      </button>
+                    </div>
                   </div>
                 </div>
               )}
