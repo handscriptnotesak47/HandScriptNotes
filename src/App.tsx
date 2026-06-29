@@ -519,19 +519,18 @@ export default function App() {
 
   // check if a unit is unlocked for current student context
   const isUnitUnlocked = (unitId: string): boolean => {
-    // 1. If any purchase for this unit has status 'Pending', block access immediately!
-    const anyPending = purchases.some((p) => p.unitId === unitId && p.status === 'Pending');
-    if (anyPending) {
+    // 1. If any purchase for this unit by this user has status 'Pending', block access.
+    const userEmail = user.isLoggedIn ? user.email.toLowerCase() : '';
+    const isPending = purchases.some((p) => 
+      p.unitId === unitId && 
+      p.status === 'Pending' && 
+      (user.isLoggedIn ? p.email.toLowerCase() === userEmail : true)
+    );
+    if (isPending) {
       return false;
     }
 
-    // 2. If there's an approved purchase for this unit in the purchases array, let them in!
-    const isApprovedInState = purchases.some((p) => p.unitId === unitId && p.status === 'Successful');
-    if (isApprovedInState) {
-      return true;
-    }
-
-    // 3. Fallback check for session library or localStorage keys
+    // 2. Fallback check for session library or localStorage keys
     if (user.isLoggedIn) {
       return user.purchasedUnitIds.includes(unitId);
     }
@@ -1184,42 +1183,29 @@ export default function App() {
                             <span>Read Unlocked Pages</span>
                           </button>
                         ) : (
-                          unit.id === 'rsmssb_bci-unit-1' ? (
+                          <div className="grid grid-cols-2 gap-2 font-bold select-none">
+                            <button
+                              id={`btn-view-demo-${unit.id}`}
+                              onClick={() => {
+                                // launches doc reader in free demo mode!
+                                setActiveReaderUnit(unit);
+                              }}
+                              className="bg-slate-50 border border-slate-200 text-slate-700 hover:text-slate-900 hover:bg-slate-100 py-2.5 rounded-xl flex items-center justify-center space-x-1 cursor-pointer transition-colors shadow-sm"
+                            >
+                              <BookOpen className="h-4 w-4" />
+                              <span>Free Demo</span>
+                            </button>
                             <button
                               id={`btn-buy-now-${unit.id}`}
                               onClick={() => {
                                 setActiveCheckoutUnit(unit);
                               }}
-                              className="w-full bg-brand-orange hover:bg-brand-orange-hover text-white py-2.5 rounded-xl flex items-center justify-center space-x-1.5 cursor-pointer shadow-lg shadow-brand-orange/15 transition-all font-bold"
+                              className="bg-brand-orange hover:bg-brand-orange-hover text-white py-2.5 rounded-xl flex items-center justify-center space-x-1 cursor-pointer shadow-lg shadow-brand-orange/15 transition-transform group-hover:scale-[1.02]"
                             >
                               <Lock className="h-4 w-4" />
-                              <span>Buy Unit & Open PDF (₹20)</span>
+                              <span>Buy Unit</span>
                             </button>
-                          ) : (
-                            <div className="grid grid-cols-2 gap-2 font-bold select-none">
-                              <button
-                                id={`btn-view-demo-${unit.id}`}
-                                onClick={() => {
-                                  // launches doc reader in free demo mode!
-                                  setActiveReaderUnit(unit);
-                                }}
-                                className="bg-slate-50 border border-slate-200 text-slate-700 hover:text-slate-900 hover:bg-slate-100 py-2.5 rounded-xl flex items-center justify-center space-x-1 cursor-pointer transition-colors shadow-sm"
-                              >
-                                <BookOpen className="h-4 w-4" />
-                                <span>Free Demo</span>
-                              </button>
-                              <button
-                                id={`btn-buy-now-${unit.id}`}
-                                onClick={() => {
-                                  setActiveCheckoutUnit(unit);
-                                }}
-                                className="bg-brand-orange hover:bg-brand-orange-hover text-white py-2.5 rounded-xl flex items-center justify-center space-x-1 cursor-pointer shadow-lg shadow-brand-orange/15 transition-transform group-hover:scale-[1.02]"
-                              >
-                                <Lock className="h-4 w-4" />
-                                <span>Buy Unit</span>
-                              </button>
-                            </div>
-                          )
+                          </div>
                         )}
                       </div>
                     </div>
