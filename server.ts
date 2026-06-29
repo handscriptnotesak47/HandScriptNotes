@@ -105,8 +105,8 @@ async function startServer() {
   let razorpayInstance: any = null;
   function getRazorpay() {
     if (!razorpayInstance) {
-      const keyId = process.env.RAZORPAY_KEY_ID || 'rzp_test_T6hjycCqpGUq5P';
-      const keySecret = process.env.RAZORPAY_KEY_SECRET || '8Oi9PqF2Y81b7qE0SFBMvrox';
+      const keyId = process.env.RAZORPAY_KEY_ID || 'rzp_live_T7O06QotgMxU0J';
+      const keySecret = process.env.RAZORPAY_KEY_SECRET || 'f2scYz1fz3Qugba12DjhqmMD';
       if (!keyId || !keySecret) {
         throw new Error('Razorpay credentials are required in environment variables.');
       }
@@ -153,7 +153,7 @@ async function startServer() {
         return res.status(400).json({ error: 'Missing required validation fields' });
       }
 
-      const keySecret = process.env.RAZORPAY_KEY_SECRET || '8Oi9PqF2Y81b7qE0SFBMvrox';
+      const keySecret = process.env.RAZORPAY_KEY_SECRET || 'f2scYz1fz3Qugba12DjhqmMD';
       const generated_signature = crypto
         .createHmac('sha256', keySecret)
         .update(razorpay_order_id + '|' + razorpay_payment_id)

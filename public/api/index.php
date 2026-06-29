@@ -716,8 +716,8 @@ if ($route === 'create-order' && $_SERVER['REQUEST_METHOD'] === 'POST') {
         exit;
     }
 
-    $keyId = defined('RAZORPAY_KEY_ID') ? RAZORPAY_KEY_ID : 'rzp_test_T6hjycCqpGUq5P';
-    $keySecret = defined('RAZORPAY_KEY_SECRET') ? RAZORPAY_KEY_SECRET : '8Oi9PqF2Y81b7qE0SFBMvrox';
+    $keyId = defined('RAZORPAY_KEY_ID') ? RAZORPAY_KEY_ID : 'rzp_live_T7O06QotgMxU0J';
+    $keySecret = defined('RAZORPAY_KEY_SECRET') ? RAZORPAY_KEY_SECRET : 'f2scYz1fz3Qugba12DjhqmMD';
 
     $url = "https://api.razorpay.com/v1/orders";
     $postData = json_encode([
@@ -769,7 +769,7 @@ if ($route === 'verify-payment' && $_SERVER['REQUEST_METHOD'] === 'POST') {
         exit;
     }
 
-    $keySecret = defined('RAZORPAY_KEY_SECRET') ? RAZORPAY_KEY_SECRET : '8Oi9PqF2Y81b7qE0SFBMvrox';
+    $keySecret = defined('RAZORPAY_KEY_SECRET') ? RAZORPAY_KEY_SECRET : 'f2scYz1fz3Qugba12DjhqmMD';
     $generatedSignature = hash_hmac('sha256', $orderId . '|' . $paymentId, $keySecret);
 
     if (hash_equals($generatedSignature, $signature)) {

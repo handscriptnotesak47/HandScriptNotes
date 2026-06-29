@@ -280,7 +280,7 @@ export default function PaymentCheckout({ unit, user, purchases, onPaymentSucces
       const razorpayOrderId = orderData.order_id;
 
       // Read Razorpay Key ID from Vite environment metadata or use standard sandbox testing key
-      const razorpayKey = ((import.meta as any).env?.VITE_RAZORPAY_KEY_ID as string) || 'rzp_test_T6hjycCqpGUq5P';
+      const razorpayKey = ((import.meta as any).env?.VITE_RAZORPAY_KEY_ID as string) || 'rzp_live_T7O06QotgMxU0J';
 
       const options = {
         key: razorpayKey,

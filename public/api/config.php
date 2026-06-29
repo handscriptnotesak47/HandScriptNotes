@@ -17,5 +17,5 @@ define('DB_PREFIX', 'hsn_');
 define('AUTO_SETUP_DB', true); // Set to true to automatically create tables and seed notes on first visit
 
 // Razorpay Credentials (Optional - can be loaded from DB or env as well)
-define('RAZORPAY_KEY_ID', 'rzp_test_T6hjycCqpGUq5P');
-define('RAZORPAY_KEY_SECRET', '8Oi9PqF2Y81b7qE0SFBMvrox');
+define('RAZORPAY_KEY_ID', 'rzp_live_T7O06QotgMxU0J');
+define('RAZORPAY_KEY_SECRET', 'f2scYz1fz3Qugba12DjhqmMD');
