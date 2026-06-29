@@ -1151,7 +1151,7 @@ export const generateNotesList = (): NotesUnit[] => {
       const isPedagogy1 = examId === 'RSMSSB_BCI' && unitNum === 1;
 
       let defaultPrice = 20;
-      if (examId === 'RSMSSB_BCI' && unitNum <= 5) {
+      if (examId === 'RSMSSB_BCI') {
         defaultPrice = 1;
       } else if (examId === 'RSMSSB_SCI' && unitNum <= 4) {
         defaultPrice = 2;
