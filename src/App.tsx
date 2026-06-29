@@ -12,6 +12,7 @@ import {
 
 import { EXAMS_INFO, NOTES_LIST } from './data';
 import { NotesUnit, PurchaseRecord, ContactQuery, UserSession, ExamCategoryType } from './types';
+import { PDFDocument } from 'pdf-lib';
 
 // Importing Custom Sub-components developed
 import Navbar from './components/Navbar';
@@ -559,18 +560,63 @@ export default function App() {
     showToast('Inventory unit price updated successfully.', 'success');
   };
 
-  const handleUpdateNotePdf = (unitId: string, pdfUrl: string, pdfName: string, pdfData?: string) => {
+  const slicePdfClientSide = async (base64Data: string): Promise<string | null> => {
+    try {
+      const base64Content = base64Data.split(';base64,').pop();
+      if (!base64Content) return null;
+      
+      const binaryString = window.atob(base64Content.replace(/\s/g, ''));
+      const len = binaryString.length;
+      const bytes = new Uint8Array(len);
+      for (let i = 0; i < len; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+      }
+      
+      const pdfDoc = await PDFDocument.load(bytes);
+      const subPdfDoc = await PDFDocument.create();
+      const totalPages = pdfDoc.getPageCount();
+      const pagesToCopy = Math.min(4, totalPages);
+      
+      const pageIndices = Array.from({ length: pagesToCopy }, (_, i) => i);
+      const copiedPages = await subPdfDoc.copyPages(pdfDoc, pageIndices);
+      for (const page of copiedPages) {
+        subPdfDoc.addPage(page);
+      }
+      
+      const pdfBytesOut = await subPdfDoc.save();
+      let binary = '';
+      const bytesOutLen = pdfBytesOut.byteLength;
+      for (let i = 0; i < bytesOutLen; i++) {
+        binary += String.fromCharCode(pdfBytesOut[i]);
+      }
+      const previewBase64 = window.btoa(binary);
+      return `data:application/pdf;base64,${previewBase64}`;
+    } catch (err) {
+      console.error('Error slicing PDF client-side:', err);
+      return null;
+    }
+  };
+
+  const handleUpdateNotePdf = async (unitId: string, pdfUrl: string, pdfName: string, pdfData?: string) => {
     // Optimistic local state update
     setNotesList((prevList) =>
       prevList.map((unit) => (unit.id === unitId ? { ...unit, pdfUrl, pdfName } : unit))
     );
 
     if (pdfData) {
-      showToast('Uploading PDF to Hostinger live server...', 'info');
+      showToast('Preparing secure 4-page PDF preview...', 'info');
+      let pdfPreviewData: string | null = null;
+      try {
+        pdfPreviewData = await slicePdfClientSide(pdfData);
+      } catch (err) {
+        console.error('Failed to slice PDF on client:', err);
+      }
+
+      showToast('Uploading full PDF + preview to live server...', 'info');
       fetch('/api/notes/update-pdf', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ unitId, pdfName, pdfData })
+        body: JSON.stringify({ unitId, pdfName, pdfData, pdfPreviewData })
       })
       .then(res => res.json())
       .then(data => {

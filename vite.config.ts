@@ -30,8 +30,19 @@ try {
       fs.writeFileSync(filePath, buffer);
     }
   });
+
+  // Copy notes_db.json to public/api/notes_db.json for PHP integration
+  const apiDir = path.resolve(__dirname, 'public', 'api');
+  if (!fs.existsSync(apiDir)) {
+    fs.mkdirSync(apiDir, { recursive: true });
+  }
+  const sourceNotesDb = path.resolve(__dirname, 'notes_db.json');
+  const targetNotesDb = path.resolve(apiDir, 'notes_db.json');
+  if (fs.existsSync(sourceNotesDb)) {
+    fs.copyFileSync(sourceNotesDb, targetNotesDb);
+  }
 } catch (e) {
-  console.error('Failed to pre-generate static icons:', e);
+  console.error('Failed to pre-generate static icons or copy notes database:', e);
 }
 
 export default defineConfig(() => {
