@@ -7,6 +7,7 @@ import React, { useState } from 'react';
 import { ShieldCheck, IndianRupee, PieChart, Users, ArrowUpRight, CheckCircle2, MessageSquare, Clipboard, Edit2, Plus, Trash2, Mail, Lock, BarChart3, TrendingUp, Search, Calendar, Download } from 'lucide-react';
 import { PurchaseRecord, ContactQuery, NotesUnit, ExamCategoryType } from '../types';
 import { savePdf } from '../utils/pdfStorage';
+import { PDFDocument } from 'pdf-lib';
 
 interface AdminPanelProps {
   purchases: PurchaseRecord[];
@@ -78,6 +79,61 @@ export default function AdminPanel({
   // Reply simulation states
   const [replyMessageId, setReplyMessageId] = useState<string | null>(null);
   const [replyText, setReplyText] = useState('');
+
+  // PDF stream uploading states
+  const [uploadingUnitId, setUploadingUnitId] = useState<string | null>(null);
+  const [isUploadingNewUnitPdf, setIsUploadingNewUnitPdf] = useState<boolean>(false);
+
+  // Helper: Slice PDF client-side to generate 4-page preview
+  const slicePdfClientSide = async (base64Data: string): Promise<string | null> => {
+    try {
+      const base64Content = base64Data.split(';base64,').pop();
+      if (!base64Content) return null;
+      
+      const binaryString = window.atob(base64Content.replace(/\s/g, ''));
+      const len = binaryString.length;
+      const bytes = new Uint8Array(len);
+      for (let i = 0; i < len; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+      }
+      
+      const pdfDoc = await PDFDocument.load(bytes);
+      const subPdfDoc = await PDFDocument.create();
+      const totalPages = pdfDoc.getPageCount();
+      const pagesToCopy = Math.min(4, totalPages);
+      
+      const pageIndices = Array.from({ length: pagesToCopy }, (_, i) => i);
+      const copiedPages = await subPdfDoc.copyPages(pdfDoc, pageIndices);
+      for (const page of copiedPages) {
+        subPdfDoc.addPage(page);
+      }
+      
+      const pdfBytesOut = await subPdfDoc.save();
+      let binary = '';
+      const bytesOutLen = pdfBytesOut.byteLength;
+      for (let i = 0; i < bytesOutLen; i++) {
+        binary += String.fromCharCode(pdfBytesOut[i]);
+      }
+      const previewBase64 = window.btoa(binary);
+      return `data:application/pdf;base64,${previewBase64}`;
+    } catch (err) {
+      console.error('slicePdfClientSide error:', err);
+      return null;
+    }
+  };
+
+  // Helper: Convert Data URL to binary Blob
+  const dataURLtoBlob = (dataurl: string): Blob => {
+    const arr = dataurl.split(',');
+    const mime = arr[0].match(/:(.*?);/)![1];
+    const bstr = window.atob(arr[1]);
+    let n = bstr.length;
+    const u8arr = new Uint8Array(n);
+    while (n--) {
+      u8arr[n] = bstr.charCodeAt(n);
+    }
+    return new Blob([u8arr], { type: mime });
+  };
 
   // Pre-seed some default analytics stats so looking at the dashboard feels like a real high-volume platform
   const baseRevenue = 15380; // seeds ₹15,380
@@ -264,7 +320,7 @@ export default function AdminPanel({
     }
   };
 
-  const handlePdfFileChange = (e: React.ChangeEvent<HTMLInputElement>, isNewUnit: boolean, unitId?: string) => {
+  const handlePdfFileChange = async (e: React.ChangeEvent<HTMLInputElement>, isNewUnit: boolean, unitId?: string) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -278,23 +334,82 @@ export default function AdminPanel({
       return;
     }
 
-    const reader = new FileReader();
-    reader.onload = async (event) => {
-      const base64Data = event.target?.result as string;
-      if (isNewUnit) {
-        setNewUnitPdfUrl(base64Data);
-        setNewUnitPdfName(file.name);
-      } else if (unitId) {
-        try {
-          await savePdf(unitId, base64Data);
-          onUpdateNotePdf(unitId, `indexeddb://${unitId}`, file.name, base64Data);
-        } catch (dbErr) {
-          console.error("Failed to store PDF in IndexedDB, fallback to state:", dbErr);
-          onUpdateNotePdf(unitId, base64Data, file.name, base64Data);
+    if (isNewUnit) {
+      setIsUploadingNewUnitPdf(true);
+    } else if (unitId) {
+      setUploadingUnitId(unitId);
+    }
+
+    try {
+      // 1. Read file to base64 so we can slice it client side
+      const base64Data = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = (event) => resolve(event.target?.result as string);
+        reader.onerror = (err) => reject(err);
+        reader.readAsDataURL(file);
+      });
+
+      // 2. Generate 4-page sliced preview PDF client-side
+      let previewBlob: Blob | null = null;
+      try {
+        const previewBase64 = await slicePdfClientSide(base64Data);
+        if (previewBase64) {
+          previewBlob = dataURLtoBlob(previewBase64);
         }
+      } catch (sliceErr) {
+        console.error("Failed to slice PDF client-side:", sliceErr);
       }
-    };
-    reader.readAsDataURL(file);
+
+      // Calculated/final unit ID
+      const targetUnitId = isNewUnit
+        ? `${newUnitExamId.toLowerCase().replace(/_/g, '-')}-unit-${newUnitNum}`
+        : unitId!;
+
+      // 3. Build multipart FormData for direct stream upload to Hostinger
+      const formData = new FormData();
+      formData.append('pdfFile', file);
+      formData.append('unitId', targetUnitId);
+      formData.append('isNewUnit', isNewUnit ? 'true' : 'false');
+      if (previewBlob) {
+        formData.append('pdfPreviewFile', previewBlob, `${targetUnitId}-preview.pdf`);
+      }
+
+      // 4. Send request to the new PHP endpoint
+      const res = await fetch('/api/notes/upload-pdf-file', {
+        method: 'POST',
+        body: formData
+      });
+
+      if (!res.ok) {
+        const errText = await res.text();
+        throw new Error(errText || `Server responded with status ${res.status}`);
+      }
+
+      const data = await res.json();
+      if (data.success) {
+        if (isNewUnit) {
+          setNewUnitPdfUrl(data.pdfUrl);
+          setNewUnitPdfName(file.name);
+          alert(`✅ PDF successfully uploaded to Hostinger server!\nServer Path: ${data.pdfUrl}`);
+        } else if (unitId) {
+          try {
+            await savePdf(unitId, base64Data);
+          } catch (dbErr) {
+            console.error("Failed to store PDF in IndexedDB:", dbErr);
+          }
+          onUpdateNotePdf(unitId, data.pdfUrl, file.name);
+          alert(`✅ PDF successfully attached and updated on Hostinger server!\nServer Path: ${data.pdfUrl}`);
+        }
+      } else {
+        throw new Error(data.error || 'Server returned unsuccessful status');
+      }
+    } catch (uploadErr: any) {
+      console.error("Failed to upload PDF:", uploadErr);
+      alert(`❌ Failed to upload PDF file: ${uploadErr.message || 'Unknown network error'}`);
+    } finally {
+      setIsUploadingNewUnitPdf(false);
+      setUploadingUnitId(null);
+    }
   };
 
   const handleCreateUnit = async (e: React.FormEvent) => {
@@ -310,13 +425,7 @@ export default function AdminPanel({
 
     let finalPdfUrl: string | undefined = undefined;
     if (newUnitPdfUrl) {
-      try {
-        await savePdf(targetId, newUnitPdfUrl);
-        finalPdfUrl = `indexeddb://${targetId}`;
-      } catch (dbErr) {
-        console.error("Failed to save unit PDF to IndexedDB, fallback to state:", dbErr);
-        finalPdfUrl = newUnitPdfUrl;
-      }
+      finalPdfUrl = newUnitPdfUrl;
     }
 
     const mockNewUnit: NotesUnit = {
@@ -985,7 +1094,12 @@ export default function AdminPanel({
                     />
                     <div className="flex flex-col items-center space-y-1">
                       <span className="text-xl">📄</span>
-                      {newUnitPdfName ? (
+                      {isUploadingNewUnitPdf ? (
+                        <div className="flex flex-col items-center space-y-0.5 animate-pulse">
+                          <span className="text-amber-400 font-extrabold text-xs bg-amber-500/10 border border-amber-500/20 px-2.5 py-0.5 rounded-full">Uploading... ⏳</span>
+                          <span className="text-[10px] text-slate-400">Uploading to Hostinger server...</span>
+                        </div>
+                      ) : newUnitPdfName ? (
                         <div className="flex flex-col items-center space-y-0.5">
                           <span className="text-emerald-400 font-extrabold text-xs bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-0.5 rounded-full">Uploaded ✅</span>
                           <span className="text-[10px] text-slate-400 truncate max-w-[180px]" title={newUnitPdfName}>{newUnitPdfName}</span>
@@ -1068,15 +1182,21 @@ export default function AdminPanel({
                             </span>
                           )}
                           
-                          <label className="text-[10px] text-orange-450 hover:text-orange-350 text-orange-400 underline font-extrabold cursor-pointer relative">
-                            <span>Attach/Update PDF</span>
-                            <input
-                              type="file"
-                              accept="application/pdf"
-                              onChange={(e) => handlePdfFileChange(e, false, unit.id)}
-                              className="absolute inset-0 opacity-0 cursor-pointer w-full h-full z-10"
-                            />
-                          </label>
+                          {uploadingUnitId === unit.id ? (
+                            <span className="text-[10px] text-amber-450 text-amber-400 font-bold animate-pulse">
+                              ⚡ Uploading to server...
+                            </span>
+                          ) : (
+                            <label className="text-[10px] text-orange-450 hover:text-orange-350 text-orange-400 underline font-extrabold cursor-pointer relative">
+                              <span>Attach/Update PDF</span>
+                              <input
+                                type="file"
+                                accept="application/pdf"
+                                onChange={(e) => handlePdfFileChange(e, false, unit.id)}
+                                className="absolute inset-0 opacity-0 cursor-pointer w-full h-full z-10"
+                              />
+                            </label>
+                          )}
                         </div>
                       </div>
 

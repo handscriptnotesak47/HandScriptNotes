@@ -857,8 +857,10 @@ if ($isPdfPreview) {
     
     // Check multiple possible preview paths
     $possiblePreviewPaths = [
+        $rootDir . '/uploads/pdfs/' . $unitId . '-preview.pdf',
         $rootDir . '/uploads/' . $unitId . '-preview.pdf',
         $rootDir . '/' . $unitId . '-preview.pdf',
+        $rootDir . '/public/uploads/pdfs/' . $unitId . '-preview.pdf',
         $rootDir . '/public/uploads/' . $unitId . '-preview.pdf',
         $rootDir . '/public/' . $unitId . '-preview.pdf'
     ];
@@ -893,14 +895,18 @@ if ($isPdfPreview) {
             $fileName = basename($pdfUrl);
             $originalName = $pdfName ? basename($pdfName) : '';
             $possibleFullPaths = [
+                $rootDir . '/uploads/pdfs/' . $fileName,
                 $rootDir . '/uploads/' . $fileName,
                 $rootDir . '/' . $fileName,
+                $rootDir . '/public/uploads/pdfs/' . $fileName,
                 $rootDir . '/public/uploads/' . $fileName,
                 $rootDir . '/public/' . $fileName
             ];
             if ($originalName) {
+                $possibleFullPaths[] = $rootDir . '/uploads/pdfs/' . $originalName;
                 $possibleFullPaths[] = $rootDir . '/uploads/' . $originalName;
                 $possibleFullPaths[] = $rootDir . '/' . $originalName;
+                $possibleFullPaths[] = $rootDir . '/public/uploads/pdfs/' . $originalName;
                 $possibleFullPaths[] = $rootDir . '/public/uploads/' . $originalName;
                 $possibleFullPaths[] = $rootDir . '/public/' . $originalName;
             }
@@ -1134,14 +1140,18 @@ if ($isPdfDownload) {
     $possiblePaths = [];
     
     if ($fileName) {
+        $possiblePaths[] = $rootDir . '/uploads/pdfs/' . $fileName;
         $possiblePaths[] = $rootDir . '/uploads/' . $fileName;
         $possiblePaths[] = $rootDir . '/' . $fileName;
+        $possiblePaths[] = $rootDir . '/public/uploads/pdfs/' . $fileName;
         $possiblePaths[] = $rootDir . '/public/uploads/' . $fileName;
         $possiblePaths[] = $rootDir . '/public/' . $fileName;
     }
     if ($originalName) {
+        $possiblePaths[] = $rootDir . '/uploads/pdfs/' . $originalName;
         $possiblePaths[] = $rootDir . '/uploads/' . $originalName;
         $possiblePaths[] = $rootDir . '/' . $originalName;
+        $possiblePaths[] = $rootDir . '/public/uploads/pdfs/' . $originalName;
         $possiblePaths[] = $rootDir . '/public/uploads/' . $originalName;
         $possiblePaths[] = $rootDir . '/public/' . $originalName;
     }
@@ -1149,6 +1159,7 @@ if ($isPdfDownload) {
     // Also check common variations like space decoded or encoded
     if ($originalName && strpos($originalName, ' ') !== false) {
         $urlEncodedName = rawurlencode($originalName);
+        $possiblePaths[] = $rootDir . '/uploads/pdfs/' . $urlEncodedName;
         $possiblePaths[] = $rootDir . '/uploads/' . $urlEncodedName;
         $possiblePaths[] = $rootDir . '/' . $urlEncodedName;
     }
@@ -1178,6 +1189,130 @@ if ($isPdfDownload) {
     header("Content-Length: " . filesize($filePath));
     readfile($filePath);
     exit;
+}
+
+// 16. POST /api/notes/upload-pdf-file (Handles binary multipart uploads of full PDF + optional preview PDF)
+if ($route === 'notes/upload-pdf-file' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    $unitId = $_POST['unitId'] ?? null;
+    $isNewUnit = ($_POST['isNewUnit'] ?? 'false') === 'true';
+    
+    if (!$unitId) {
+        http_response_code(400);
+        echo json_encode(['error' => 'Missing unitId parameter.']);
+        exit;
+    }
+
+    if (!isset($_FILES['pdfFile'])) {
+        http_response_code(400);
+        echo json_encode(['error' => 'No PDF file uploaded.']);
+        exit;
+    }
+
+    $pdfFile = $_FILES['pdfFile'];
+    if ($pdfFile['error'] !== UPLOAD_ERR_OK) {
+        http_response_code(400);
+        echo json_encode(['error' => 'Upload error code: ' . $pdfFile['error']]);
+        exit;
+    }
+
+    // Validate mime-type & extension (safely fallback if fileinfo is not available)
+    $mimeType = 'application/pdf';
+    if (function_exists('finfo_open')) {
+        $finfo = finfo_open(FILEINFO_MIME_TYPE);
+        if ($finfo) {
+            $mimeType = finfo_file($finfo, $pdfFile['tmp_name']);
+            finfo_close($finfo);
+        }
+    }
+
+    $ext = strtolower(pathinfo($pdfFile['name'], PATHINFO_EXTENSION));
+    if (($mimeType !== 'application/pdf' && $mimeType !== 'application/x-pdf' && $mimeType !== 'application/octet-stream') || $ext !== 'pdf') {
+        http_response_code(400);
+        echo json_encode(['error' => 'Invalid file format. Only PDF files are allowed. Loaded type: ' . $mimeType]);
+        exit;
+    }
+
+    try {
+        $rootDir = dirname(dirname(__DIR__));
+        $uploadsDir = $rootDir . '/uploads';
+        $pdfsDir = $uploadsDir . '/pdfs';
+
+        // Auto-create uploads/ & uploads/pdfs/
+        if (!file_exists($uploadsDir)) {
+            mkdir($uploadsDir, 0755, true);
+        }
+        if (!file_exists($pdfsDir)) {
+            mkdir($pdfsDir, 0755, true);
+        }
+
+        // Sanitize & generate distinct filename
+        $originalName = basename($pdfFile['name']);
+        $sanitizedName = preg_replace('/[^a-zA-Z0-9_\-\.]/', '_', $originalName);
+        $fullFileName = $unitId . '-' . time() . '-' . $sanitizedName;
+        $fullFilePath = $pdfsDir . '/' . $fullFileName;
+
+        if (!move_uploaded_file($pdfFile['tmp_name'], $fullFilePath)) {
+            throw new Exception("Could not write the uploaded file to disk. Check directory permissions.");
+        }
+
+        // Verify file exists on server disk
+        if (!file_exists($fullFilePath)) {
+            throw new Exception("File verification failed. The file was not saved on Hostinger server.");
+        }
+
+        $publicUrl = '/uploads/pdfs/' . $fullFileName;
+
+        // Process preview file if provided
+        if (isset($_FILES['pdfPreviewFile']) && $_FILES['pdfPreviewFile']['error'] === UPLOAD_ERR_OK) {
+            $previewFile = $_FILES['pdfPreviewFile'];
+            $previewFileName = $unitId . '-preview.pdf';
+            $previewFilePath = $pdfsDir . '/' . $previewFileName;
+            $oldPreviewFilePath = $uploadsDir . '/' . $previewFileName;
+            
+            if (move_uploaded_file($previewFile['tmp_name'], $previewFilePath)) {
+                if (file_exists($previewFilePath)) {
+                    copy($previewFilePath, $oldPreviewFilePath);
+                }
+            }
+        }
+
+        // Only update database if it's NOT a new unit (existing units get synced immediately)
+        if (!$isNewUnit) {
+            if ($useMySQL) {
+                try {
+                    $stmt = $pdo->prepare("UPDATE `" . DB_PREFIX . "notes` SET pdfUrl = ?, pdfName = ? WHERE id = ?");
+                    $stmt->execute([$publicUrl, $originalName, $unitId]);
+                } catch (Exception $e) {
+                    $useMySQL = false;
+                }
+            }
+
+            if (!$useMySQL) {
+                $notes = fetchAllNotes();
+                foreach ($notes as &$n) {
+                    if ($n['id'] === $unitId) {
+                        $n['pdfUrl'] = $publicUrl;
+                        $n['pdfName'] = $originalName;
+                        break;
+                    }
+                }
+                saveNotesListFallback($notes);
+            }
+        }
+
+        echo json_encode([
+            'success' => true,
+            'pdfUrl' => $publicUrl,
+            'pdfName' => $originalName,
+            'notes' => fetchAllNotes()
+        ]);
+        exit;
+    } catch (Exception $e) {
+        error_log("PDF Upload error: " . $e->getMessage());
+        http_response_code(500);
+        echo json_encode(['error' => 'Failed to process PDF upload: ' . $e->getMessage()]);
+        exit;
+    }
 }
 
 // 22. Fallback route not found
