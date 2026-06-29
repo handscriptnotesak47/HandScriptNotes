@@ -1150,13 +1150,20 @@ export const generateNotesList = (): NotesUnit[] => {
       
       const isPedagogy1 = examId === 'RSMSSB_BCI' && unitNum === 1;
 
+      let defaultPrice = 20;
+      if (examId === 'RSMSSB_BCI' && unitNum <= 5) {
+        defaultPrice = 1;
+      } else if (examId === 'RSMSSB_SCI' && unitNum <= 4) {
+        defaultPrice = 2;
+      }
+
       list.push({
         id: unitId,
         examId,
         unitNumber: unitNum,
         name: `Unit ${unitNum}: ${u.name}`,
         shortDescription: u.desc,
-        price: 20, // ₹20 unit-wise notes
+        price: defaultPrice,
         demoPages: isPedagogy1 ? getTeachingAptitudePages(true) : generatePages(examId, unitNum, u.name, u.concept, true),
         fullPages: isPedagogy1 ? getTeachingAptitudePages(false) : generatePages(examId, unitNum, u.name, u.concept, false)
       });

@@ -131,6 +131,22 @@ try {
                     }
                 }
             }
+        } else if ($tableExists && AUTO_SETUP_DB && file_exists($notesJsonPath)) {
+            // Automatically sync/update prices from notes_db.json to the MySQL database if they differ!
+            // This ensures that any price changes made in the code/JSON go live on Hostinger immediately.
+            $notesJson = file_get_contents($notesJsonPath);
+            $notes = json_decode($notesJson, true);
+            if (is_array($notes)) {
+                $stmtCheck = $pdo->prepare("SELECT price FROM `" . DB_PREFIX . "notes` WHERE id = ?");
+                $stmtUpdate = $pdo->prepare("UPDATE `" . DB_PREFIX . "notes` SET price = ? WHERE id = ?");
+                foreach ($notes as $n) {
+                    $stmtCheck->execute([$n['id']]);
+                    $dbPrice = $stmtCheck->fetchColumn();
+                    if ($dbPrice !== false && (int)$dbPrice !== (int)$n['price']) {
+                        $stmtUpdate->execute([(int)$n['price'], $n['id']]);
+                    }
+                }
+            }
         }
     }
 } catch (Exception $e) {
