@@ -671,14 +671,30 @@ export default function DocReader({ unit, isUnlocked, onBuy, onClose }: DocReade
           document.body.removeChild(link);
           URL.revokeObjectURL(url);
         } else {
-          // Direct download link
-          const link = document.createElement('a');
-          link.href = actualPdfUrl;
-          link.target = '_blank';
-          link.download = fileName.endsWith('.pdf') ? fileName : `${fileName}.pdf`;
-          document.body.appendChild(link);
-          link.click();
-          document.body.removeChild(link);
+          try {
+            // Fetch as a blob to force-download the file reliably across all platforms & iframes
+            const response = await fetch(actualPdfUrl);
+            if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+            const blob = await response.blob();
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = fileName.endsWith('.pdf') ? fileName : `${fileName}.pdf`;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            URL.revokeObjectURL(url);
+          } catch (fetchErr) {
+            console.error("Fetch-blob download failed, falling back to direct link:", fetchErr);
+            // Fallback direct download link
+            const link = document.createElement('a');
+            link.href = actualPdfUrl;
+            link.target = '_blank';
+            link.download = fileName.endsWith('.pdf') ? fileName : `${fileName}.pdf`;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+          }
         }
       } else {
         // Fallback: Use browser print settings

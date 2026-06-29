@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { CreditCard, Check, ShieldCheck, QrCode, Smartphone, Sparkles, Loader2, IndianRupee, ArrowLeft, Copy, Zap, AlertTriangle } from 'lucide-react';
+import { CreditCard, Check, ShieldCheck, QrCode, Smartphone, Sparkles, Loader2, IndianRupee, ArrowLeft, Copy, Zap, AlertTriangle, Download, Eye } from 'lucide-react';
 import { NotesUnit, PurchaseRecord, UserSession } from '../types';
 
 interface PaymentCheckoutProps {
@@ -46,15 +46,60 @@ export default function PaymentCheckout({ unit, user, purchases, onPaymentSucces
   // Simulated automated UPI transaction detector states
   const [isVerifying, setIsVerifying] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
-  const [countdown, setCountdown] = useState(3);
+  const [countdown, setCountdown] = useState(10);
   const [utrNumber, setUtrNumber] = useState('');
   const [utrError, setUtrError] = useState('');
+  const [hasAutoDownloaded, setHasAutoDownloaded] = useState(false);
+
+  // Dynamic direct/force PDF download handler
+  const handleDownloadPdf = async () => {
+    if (!unit.pdfUrl) {
+      console.warn("No PDF URL found for this unit.");
+      return;
+    }
+    try {
+      const fileName = unit.pdfName || `${unit.examId}_Unit_${unit.unitNumber}_Original_Handwritten_Notes.pdf`;
+      let actualPdfUrl = unit.pdfUrl;
+
+      // Fetch as a blob to force-download the file reliably across all platforms & iframes
+      const response = await fetch(actualPdfUrl);
+      if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = fileName.endsWith('.pdf') ? fileName : `${fileName}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error("Forced PDF download failed, falling back to direct link:", error);
+      // Fallback direct download link
+      const fileName = unit.pdfName || `${unit.examId}_Unit_${unit.unitNumber}_Original_Handwritten_Notes.pdf`;
+      const link = document.createElement('a');
+      link.href = unit.pdfUrl;
+      link.target = '_blank';
+      link.download = fileName.endsWith('.pdf') ? fileName : `${fileName}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    }
+  };
   
   // Real UPI dynamic payment link format
   const recipientUpiId = '7219980710@ybl';
   const payeeName = 'HandScript Notes';
   const upiUrl = `upi://pay?pa=${recipientUpiId}&pn=${encodeURIComponent(payeeName)}&am=${unit.price}&cu=INR&tn=${encodeURIComponent(`Order Unit ${unit.unitNumber || ''}`)}`;
   const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(upiUrl)}`;
+
+  // Automatically trigger PDF download as soon as payment is successful
+  useEffect(() => {
+    if (step === 'success' && !hasAutoDownloaded && unit.pdfUrl) {
+      setHasAutoDownloaded(true);
+      handleDownloadPdf();
+    }
+  }, [step, hasAutoDownloaded, unit.pdfUrl]);
 
   // Automatically close checkout and open the document reader when successfully approved
   useEffect(() => {
@@ -680,15 +725,15 @@ export default function PaymentCheckout({ unit, user, purchases, onPaymentSucces
                 <Check className="h-10 w-10 text-emerald-600 font-black animate-bounce" />
               </div>
               <div className="space-y-1.5 font-sans animate-fadeIn">
-                <h4 className="font-sans font-extrabold text-lg text-slate-900">PDF Access Is Unlocked! 🎉</h4>
+                <h4 className="font-sans font-extrabold text-lg text-slate-900">PDF Unlocked successfully! 🎉</h4>
                 <p className="text-[10px] text-emerald-700 font-extrabold uppercase tracking-widest font-mono bg-emerald-50 px-2.5 py-1 rounded inline-block">
                   Order Approved Successfully
                 </p>
-                <p className="text-xs text-slate-500 max-w-xs mx-auto font-medium leading-relaxed font-sans">
-                  The payment transfer is successful. Your original high-resolution handwritten PDF is now fully unlocked for copy/print inside the reader.
+                <p className="text-xs text-slate-500 max-w-xs mx-auto font-semibold leading-relaxed font-sans">
+                  The payment transfer is successful. Your original high-resolution handwritten PDF is now fully unlocked. It is downloading automatically or you can download below!
                 </p>
                 <div className="text-[11px] text-indigo-700 font-bold bg-indigo-50/60 py-1.5 px-3 rounded-full inline-block animate-pulse">
-                  ⚡ Redirecting to PDF reader in {countdown}s...
+                  ⚡ Auto-redirecting to PDF reader in {countdown}s...
                 </div>
               </div>
 
@@ -707,15 +752,25 @@ export default function PaymentCheckout({ unit, user, purchases, onPaymentSucces
                 </div>
               </div>
 
-              <div className="flex flex-col space-y-2">
+              <div className="flex flex-col space-y-2.5">
+                <button
+                  id="btn-checkout-download-manual"
+                  type="button"
+                  onClick={handleDownloadPdf}
+                  className="w-full bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white py-3.5 rounded-2xl font-extrabold text-xs flex items-center justify-center space-x-2 shadow-lg transition-all cursor-pointer uppercase tracking-wider font-sans"
+                >
+                  <Download className="h-4 w-4 text-white" />
+                  <span>Download Original PDF (💾 पीडीएफ डाउनलोड करें)</span>
+                </button>
+
                 <button
                   id="btn-checkout-read"
                   type="button"
                   onClick={onClose}
-                  className="w-full bg-slate-950 hover:bg-zinc-900 text-white py-3 rounded-2xl font-extrabold text-xs flex items-center justify-center space-x-2 shadow-lg transition-all cursor-pointer uppercase tracking-wider font-sans cursor-pointer animate-pulse"
+                  className="w-full bg-slate-950 hover:bg-zinc-900 text-white py-3.5 rounded-2xl font-extrabold text-xs flex items-center justify-center space-x-2 shadow-lg transition-all cursor-pointer uppercase tracking-wider font-sans cursor-pointer animate-pulse"
                 >
-                  <Sparkles className="h-4 w-4 text-amber-300" />
-                  <span>Open PDF In Reader Now ({countdown}s)</span>
+                  <Eye className="h-4 w-4 text-amber-300" />
+                  <span>Open PDF in Reader Now (👁️ रीडर में खोलें - {countdown}s)</span>
                 </button>
               </div>
             </div>
