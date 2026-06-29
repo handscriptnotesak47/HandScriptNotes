@@ -1,7 +1,8 @@
 <?php
 /**
  * HandScript Notes PHP API Routing Controller
- * Compatible with Hostinger Shared Web Hosting
+ * Dynamic Hybrid Architecture: MySQL Database with seamless Flat-File JSON Database Fallback
+ * Extremely reliable, secure, and compatible with Hostinger Shared Web Hosting out-of-the-box.
  */
 
 // Enable error logging but hide from browser to keep API clean
@@ -25,141 +26,268 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 $route = $_GET['route'] ?? '';
 
 // Route static file previews as PDF streams (cannot use application/json content-type)
-$isPdfPreview = preg_match('/^pdf-preview\/(.+)$/', $route);
+$isPdfPreview = preg_match('/^pdf-preview\/(.+)$/', $route, $matches);
 if (!$isPdfPreview) {
     header("Content-Type: application/json; charset=UTF-8");
 }
 
-// Setup Database Connection and Tables Auto-Installer
+// Global state variables
+$useMySQL = false;
+$pdo = null;
+$pdoError = null;
+
+// File-System Database Paths (Fallback Storage)
+$notesJsonPath = __DIR__ . '/notes_db.json';
+$queriesJsonPath = __DIR__ . '/queries_db.json';
+$adminJsonPath = __DIR__ . '/admin_db.json';
+
+// Initialize PDO Database Connection and Auto-Installer if database is configured
 try {
-    $dsn = "mysql:host=" . DB_HOST . ";dbname=" . DB_NAME . ";charset=utf8mb4";
-    $pdo = new PDO($dsn, DB_USER, DB_PASS, [
-        PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
-        PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-        PDO::ATTR_EMULATE_PREPARES => false,
-    ]);
+    // Only attempt MySQL if database host and name are populated with non-defaults
+    if (defined('DB_HOST') && DB_HOST !== '' && defined('DB_NAME') && DB_NAME !== '' && DB_USER !== 'root') {
+        $dsn = "mysql:host=" . DB_HOST . ";dbname=" . DB_NAME . ";charset=utf8mb4";
+        $pdo = new PDO($dsn, DB_USER, DB_PASS, [
+            PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+            PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+            PDO::ATTR_EMULATE_PREPARES => false,
+        ]);
+        $useMySQL = true;
 
-    // Check if notes table exists, if not, perform database installation & pre-seeding
-    $tableExists = false;
-    try {
-        $result = $pdo->query("SELECT 1 FROM `" . DB_PREFIX . "notes` LIMIT 1");
-        $tableExists = true;
-    } catch (Exception $e) {
+        // Check if notes table exists, if not, perform database installation & pre-seeding
         $tableExists = false;
-    }
-
-    if (!$tableExists && AUTO_SETUP_DB) {
-        // 1. Create hsn_admin_config table
-        $pdo->exec("CREATE TABLE IF NOT EXISTS `" . DB_PREFIX . "admin_config` (
-            `id` INT AUTO_INCREMENT PRIMARY KEY,
-            `username` VARCHAR(100) NOT NULL,
-            `password` VARCHAR(255) NOT NULL,
-            `security_question` VARCHAR(255) NOT NULL,
-            `security_answer` VARCHAR(255) NOT NULL
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;");
-
-        // Seed Default Admin User
-        $stmt = $pdo->query("SELECT COUNT(*) FROM `" . DB_PREFIX . "admin_config`");
-        if ($stmt->fetchColumn() == 0) {
-            $stmt = $pdo->prepare("INSERT INTO `" . DB_PREFIX . "admin_config` (username, password, security_question, security_answer) VALUES (?, ?, ?, ?)");
-            $stmt->execute([
-                'HandScriptNotesak47',
-                'P@ssw0rdadminak47',
-                'What is your primary contact email?',
-                'handscriptnotesak47@gmail.com'
-            ]);
+        try {
+            $result = $pdo->query("SELECT 1 FROM `" . DB_PREFIX . "notes` LIMIT 1");
+            $tableExists = true;
+        } catch (Exception $e) {
+            $tableExists = false;
         }
 
-        // 2. Create hsn_notes table
-        $pdo->exec("CREATE TABLE IF NOT EXISTS `" . DB_PREFIX . "notes` (
-            `id` VARCHAR(100) PRIMARY KEY,
-            `examId` VARCHAR(50) NOT NULL,
-            `unitNumber` INT NOT NULL,
-            `name` VARCHAR(255) NOT NULL,
-            `shortDescription` TEXT NOT NULL,
-            `price` INT NOT NULL,
-            `demoPages` LONGTEXT,
-            `fullPages` LONGTEXT,
-            `pdfUrl` VARCHAR(255),
-            `pdfName` VARCHAR(255)
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;");
+        if (!$tableExists && AUTO_SETUP_DB) {
+            // 1. Create hsn_admin_config table
+            $pdo->exec("CREATE TABLE IF NOT EXISTS `" . DB_PREFIX . "admin_config` (
+                `id` INT AUTO_INCREMENT PRIMARY KEY,
+                `username` VARCHAR(100) NOT NULL,
+                `password` VARCHAR(255) NOT NULL,
+                `security_question` VARCHAR(255) NOT NULL,
+                `security_answer` VARCHAR(255) NOT NULL
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;");
 
-        // 3. Create hsn_queries table
-        $pdo->exec("CREATE TABLE IF NOT EXISTS `" . DB_PREFIX . "queries` (
-            `id` VARCHAR(100) PRIMARY KEY,
-            `name` VARCHAR(100) NOT NULL,
-            `email` VARCHAR(100) NOT NULL,
-            `subject` VARCHAR(255) NOT NULL,
-            `message` TEXT NOT NULL,
-            `replied` TINYINT(1) DEFAULT 0,
-            `createdAt` VARCHAR(50) NOT NULL
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;");
+            // Seed Default Admin User
+            $stmt = $pdo->query("SELECT COUNT(*) FROM `" . DB_PREFIX . "admin_config`");
+            if ($stmt->fetchColumn() == 0) {
+                $stmt = $pdo->prepare("INSERT INTO `" . DB_PREFIX . "admin_config` (username, password, security_question, security_answer) VALUES (?, ?, ?, ?)");
+                $stmt->execute([
+                    'HandScriptNotesak47',
+                    'P@ssw0rdadminak47',
+                    'What is your primary contact email?',
+                    'handscriptnotesak47@gmail.com'
+                ]);
+            }
 
-        // Seed original handwritten notes list from notes_db.json
-        $notesFile = __DIR__ . '/notes_db.json';
-        if (file_exists($notesFile)) {
-            $notesJson = file_get_contents($notesFile);
-            $notes = json_decode($notesJson, true);
-            if (is_array($notes)) {
-                $stmt = $pdo->prepare("INSERT INTO `" . DB_PREFIX . "notes` (id, examId, unitNumber, name, shortDescription, price, demoPages, fullPages, pdfUrl, pdfName) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
-                foreach ($notes as $n) {
-                    $stmt->execute([
-                        $n['id'],
-                        $n['examId'],
-                        (int)$n['unitNumber'],
-                        $n['name'],
-                        $n['shortDescription'],
-                        (int)$n['price'],
-                        json_encode($n['demoPages'] ?? []),
-                        json_encode($n['fullPages'] ?? []),
-                        $n['pdfUrl'] ?? null,
-                        $n['pdfName'] ?? null
-                    ]);
+            // 2. Create hsn_notes table
+            $pdo->exec("CREATE TABLE IF NOT EXISTS `" . DB_PREFIX . "notes` (
+                `id` VARCHAR(100) PRIMARY KEY,
+                `examId` VARCHAR(50) NOT NULL,
+                `unitNumber` INT NOT NULL,
+                `name` VARCHAR(255) NOT NULL,
+                `shortDescription` TEXT NOT NULL,
+                `price` INT NOT NULL,
+                `demoPages` LONGTEXT,
+                `fullPages` LONGTEXT,
+                `pdfUrl` VARCHAR(255),
+                `pdfName` VARCHAR(255)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;");
+
+            // 3. Create hsn_queries table
+            $pdo->exec("CREATE TABLE IF NOT EXISTS `" . DB_PREFIX . "queries` (
+                `id` VARCHAR(100) PRIMARY KEY,
+                `name` VARCHAR(100) NOT NULL,
+                `email` VARCHAR(100) NOT NULL,
+                `subject` VARCHAR(255) NOT NULL,
+                `message` TEXT NOT NULL,
+                `replied` TINYINT(1) DEFAULT 0,
+                `createdAt` VARCHAR(50) NOT NULL
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;");
+
+            // Seed original handwritten notes list from notes_db.json
+            if (file_exists($notesJsonPath)) {
+                $notesJson = file_get_contents($notesJsonPath);
+                $notes = json_decode($notesJson, true);
+                if (is_array($notes)) {
+                    $stmt = $pdo->prepare("INSERT INTO `" . DB_PREFIX . "notes` (id, examId, unitNumber, name, shortDescription, price, demoPages, fullPages, pdfUrl, pdfName) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+                    foreach ($notes as $n) {
+                        $stmt->execute([
+                            $n['id'],
+                            $n['examId'],
+                            (int)$n['unitNumber'],
+                            $n['name'],
+                            $n['shortDescription'],
+                            (int)$n['price'],
+                            json_encode($n['demoPages'] ?? []),
+                            json_encode($n['fullPages'] ?? []),
+                            $n['pdfUrl'] ?? null,
+                            $n['pdfName'] ?? null
+                        ]);
+                    }
                 }
             }
         }
     }
 } catch (Exception $e) {
-    if ($isPdfPreview) {
-        http_response_code(500);
-        echo "Database connection or initialization failed: " . $e->getMessage();
-    } else {
-        http_response_code(500);
-        echo json_encode([
-            'error' => 'Database Connection Failed',
-            'details' => $e->getMessage(),
-            'tip' => 'Please configure the MySQL credentials in public/api/config.php'
-        ]);
-    }
-    exit;
+    // Gracefully fallback to Flat-File system, record error for transparency
+    $useMySQL = false;
+    $pdoError = $e->getMessage();
 }
+
+
+// ========================================================
+// REUSABLE DATABASE OPERATOR FUNCTIONS (HYBRID MODEL)
+// ========================================================
+
+/**
+ * Fetch all notes units
+ */
+function fetchAllNotes() {
+    global $useMySQL, $pdo, $notesJsonPath;
+    
+    if ($useMySQL) {
+        try {
+            $stmt = $pdo->query("SELECT * FROM `" . DB_PREFIX . "notes` ORDER BY examId ASC, unitNumber ASC");
+            $notes = $stmt->fetchAll();
+            foreach ($notes as &$n) {
+                $n['unitNumber'] = (int)$n['unitNumber'];
+                $n['price'] = (int)$n['price'];
+                $n['demoPages'] = json_decode($n['demoPages'] ?? '[]', true);
+                $n['fullPages'] = json_decode($n['fullPages'] ?? '[]', true);
+            }
+            return $notes;
+        } catch (Exception $e) {
+            // Fallback to JSON if DB fails mid-session
+        }
+    }
+    
+    // File-System Fallback
+    if (file_exists($notesJsonPath)) {
+        $notes = json_decode(file_get_contents($notesJsonPath), true);
+        if (is_array($notes)) {
+            return $notes;
+        }
+    }
+    return [];
+}
+
+/**
+ * Save notes list (used in file-system fallback mode)
+ */
+function saveNotesListFallback($notes) {
+    global $notesJsonPath;
+    file_put_contents($notesJsonPath, json_encode($notes, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
+}
+
+/**
+ * Fetch all contact inquiries
+ */
+function fetchAllQueries() {
+    global $useMySQL, $pdo, $queriesJsonPath;
+    
+    if ($useMySQL) {
+        try {
+            $stmt = $pdo->query("SELECT * FROM `" . DB_PREFIX . "queries` ORDER BY createdAt DESC");
+            $queries = $stmt->fetchAll();
+            foreach ($queries as &$q) {
+                $q['replied'] = (bool)$q['replied'];
+            }
+            return $queries;
+        } catch (Exception $e) {
+            // fallback
+        }
+    }
+    
+    // File-System Fallback
+    if (file_exists($queriesJsonPath)) {
+        $queries = json_decode(file_get_contents($queriesJsonPath), true);
+        if (is_array($queries)) {
+            return $queries;
+        }
+    }
+    return [];
+}
+
+/**
+ * Save query inquiries
+ */
+function saveQueriesFallback($queries) {
+    global $queriesJsonPath;
+    file_put_contents($queriesJsonPath, json_encode($queries, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
+}
+
+/**
+ * Retrieve or Seed Admin User Credentials
+ */
+function getAdminCredentials() {
+    global $useMySQL, $pdo, $adminJsonPath;
+    
+    $defaultAdmin = [
+        'username' => 'HandScriptNotesak47',
+        'password' => 'P@ssw0rdadminak47',
+        'security_question' => 'What is your primary contact email?',
+        'security_answer' => 'handscriptnotesak47@gmail.com'
+    ];
+    
+    if ($useMySQL) {
+        try {
+            $stmt = $pdo->query("SELECT * FROM `" . DB_PREFIX . "admin_config` LIMIT 1");
+            $admin = $stmt->fetch();
+            if ($admin) {
+                return $admin;
+            }
+        } catch (Exception $e) {
+            // fallback
+        }
+    }
+    
+    // File-System Fallback
+    if (file_exists($adminJsonPath)) {
+        $admin = json_decode(file_get_contents($adminJsonPath), true);
+        if (is_array($admin)) {
+            return $admin;
+        }
+    }
+    
+    // Seed and write default config if not existing
+    file_put_contents($adminJsonPath, json_encode($defaultAdmin, JSON_PRETTY_PRINT));
+    return $defaultAdmin;
+}
+
+/**
+ * Save Admin Credentials
+ */
+function saveAdminCredentials($admin) {
+    global $useMySQL, $pdo, $adminJsonPath;
+    
+    if ($useMySQL) {
+        try {
+            $stmt = $pdo->prepare("UPDATE `" . DB_PREFIX . "admin_config` SET username = ?, password = ?, security_question = ?, security_answer = ? WHERE id = 1");
+            $stmt->execute([
+                $admin['username'],
+                $admin['password'],
+                $admin['security_question'],
+                $admin['security_answer']
+            ]);
+            return true;
+        } catch (Exception $e) {
+            // fallback
+        }
+    }
+    
+    file_put_contents($adminJsonPath, json_encode($admin, JSON_PRETTY_PRINT));
+    return true;
+}
+
 
 // Load raw json input parameters
 $inputJSON = file_get_contents('php://input');
 $input = json_decode($inputJSON, true) ?? [];
-
-// Helper to sanitize database output notes list
-function fetchAllNotes($pdo) {
-    $stmt = $pdo->query("SELECT * FROM `" . DB_PREFIX . "notes` ORDER BY examId ASC, unitNumber ASC");
-    $notes = $stmt->fetchAll();
-    foreach ($notes as &$n) {
-        $n['unitNumber'] = (int)$n['unitNumber'];
-        $n['price'] = (int)$n['price'];
-        $n['demoPages'] = json_decode($n['demoPages'] ?? '[]', true);
-        $n['fullPages'] = json_decode($n['fullPages'] ?? '[]', true);
-    }
-    return $notes;
-}
-
-// Helper to sanitize database output queries list
-function fetchAllQueries($pdo) {
-    $stmt = $pdo->query("SELECT * FROM `" . DB_PREFIX . "queries` ORDER BY createdAt DESC");
-    $queries = $stmt->fetchAll();
-    foreach ($queries as &$q) {
-        $q['replied'] = (bool)$q['replied'];
-    }
-    return $queries;
-}
 
 
 // ========================================================
@@ -168,13 +296,14 @@ function fetchAllQueries($pdo) {
 
 // 1. GET /api/notes
 if ($route === 'notes' && $_SERVER['REQUEST_METHOD'] === 'GET') {
-    echo json_encode(fetchAllNotes($pdo));
+    $notes = fetchAllNotes();
+    echo json_encode($notes);
     exit;
 }
 
 // 2. GET /api/queries
 if ($route === 'queries' && $_SERVER['REQUEST_METHOD'] === 'GET') {
-    echo json_encode(fetchAllQueries($pdo));
+    echo json_encode(fetchAllQueries());
     exit;
 }
 
@@ -187,20 +316,40 @@ if ($route === 'queries' && $_SERVER['REQUEST_METHOD'] === 'POST') {
         exit;
     }
 
-    $stmt = $pdo->prepare("INSERT INTO `" . DB_PREFIX . "queries` (id, name, email, subject, message, replied, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?)");
-    $stmt->execute([
-        $qData['id'],
-        $qData['name'],
-        $qData['email'],
-        $qData['subject'],
-        $qData['message'],
-        $qData['replied'] ? 1 : 0,
-        $qData['createdAt'] ?? date('c')
-    ]);
+    if ($useMySQL) {
+        try {
+            $stmt = $pdo->prepare("INSERT INTO `" . DB_PREFIX . "queries` (id, name, email, subject, message, replied, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?)");
+            $stmt->execute([
+                $qData['id'],
+                $qData['name'],
+                $qData['email'],
+                $qData['subject'],
+                $qData['message'],
+                $qData['replied'] ? 1 : 0,
+                $qData['createdAt'] ?? date('c')
+            ]);
+        } catch (Exception $e) {
+            $useMySQL = false; // Fallback
+        }
+    }
+
+    if (!$useMySQL) {
+        $queries = fetchAllQueries();
+        $queries[] = [
+            'id' => $qData['id'],
+            'name' => $qData['name'],
+            'email' => $qData['email'],
+            'subject' => $qData['subject'],
+            'message' => $qData['message'],
+            'replied' => (bool)($qData['replied'] ?? false),
+            'createdAt' => $qData['createdAt'] ?? date('c')
+        ];
+        saveQueriesFallback($queries);
+    }
 
     echo json_encode([
         'success' => true,
-        'queries' => fetchAllQueries($pdo)
+        'queries' => fetchAllQueries()
     ]);
     exit;
 }
@@ -214,12 +363,29 @@ if ($route === 'queries/answer' && $_SERVER['REQUEST_METHOD'] === 'POST') {
         exit;
     }
 
-    $stmt = $pdo->prepare("UPDATE `" . DB_PREFIX . "queries` SET replied = 1 WHERE id = ?");
-    $stmt->execute([$queryId]);
+    if ($useMySQL) {
+        try {
+            $stmt = $pdo->prepare("UPDATE `" . DB_PREFIX . "queries` SET replied = 1 WHERE id = ?");
+            $stmt->execute([$queryId]);
+        } catch (Exception $e) {
+            $useMySQL = false;
+        }
+    }
+
+    if (!$useMySQL) {
+        $queries = fetchAllQueries();
+        foreach ($queries as &$q) {
+            if ($q['id'] === $queryId) {
+                $q['replied'] = true;
+                break;
+            }
+        }
+        saveQueriesFallback($queries);
+    }
 
     echo json_encode([
         'success' => true,
-        'queries' => fetchAllQueries($pdo)
+        'queries' => fetchAllQueries()
     ]);
     exit;
 }
@@ -234,12 +400,29 @@ if ($route === 'notes/update-price' && $_SERVER['REQUEST_METHOD'] === 'POST') {
         exit;
     }
 
-    $stmt = $pdo->prepare("UPDATE `" . DB_PREFIX . "notes` SET price = ? WHERE id = ?");
-    $stmt->execute([(int)$price, $unitId]);
+    if ($useMySQL) {
+        try {
+            $stmt = $pdo->prepare("UPDATE `" . DB_PREFIX . "notes` SET price = ? WHERE id = ?");
+            $stmt->execute([(int)$price, $unitId]);
+        } catch (Exception $e) {
+            $useMySQL = false;
+        }
+    }
+
+    if (!$useMySQL) {
+        $notes = fetchAllNotes();
+        foreach ($notes as &$n) {
+            if ($n['id'] === $unitId) {
+                $n['price'] = (int)$price;
+                break;
+            }
+        }
+        saveNotesListFallback($notes);
+    }
 
     echo json_encode([
         'success' => true,
-        'notes' => fetchAllNotes($pdo)
+        'notes' => fetchAllNotes()
     ]);
     exit;
 }
@@ -282,15 +465,33 @@ if ($route === 'notes/update-pdf' && $_SERVER['REQUEST_METHOD'] === 'POST') {
             file_put_contents($previewFilePath, $previewBuffer);
         }
 
-        // Sync details to MySQL Database
-        $stmt = $pdo->prepare("UPDATE `" . DB_PREFIX . "notes` SET pdfUrl = ?, pdfName = ? WHERE id = ?");
-        $stmt->execute([$publicUrl, $pdfName, $unitId]);
+        // Sync details
+        if ($useMySQL) {
+            try {
+                $stmt = $pdo->prepare("UPDATE `" . DB_PREFIX . "notes` SET pdfUrl = ?, pdfName = ? WHERE id = ?");
+                $stmt->execute([$publicUrl, $pdfName, $unitId]);
+            } catch (Exception $e) {
+                $useMySQL = false;
+            }
+        }
+
+        if (!$useMySQL) {
+            $notes = fetchAllNotes();
+            foreach ($notes as &$n) {
+                if ($n['id'] === $unitId) {
+                    $n['pdfUrl'] = $publicUrl;
+                    $n['pdfName'] = $pdfName;
+                    break;
+                }
+            }
+            saveNotesListFallback($notes);
+        }
 
         echo json_encode([
             'success' => true,
             'pdfUrl' => $publicUrl,
             'pdfName' => $pdfName,
-            'notes' => fetchAllNotes($pdo)
+            'notes' => fetchAllNotes()
         ]);
         exit;
     } catch (Exception $e) {
@@ -309,23 +510,46 @@ if ($route === 'notes/add-unit' && $_SERVER['REQUEST_METHOD'] === 'POST') {
         exit;
     }
 
-    $stmt = $pdo->prepare("INSERT INTO `" . DB_PREFIX . "notes` (id, examId, unitNumber, name, shortDescription, price, demoPages, fullPages, pdfUrl, pdfName) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
-    $stmt->execute([
-        $unit['id'],
-        $unit['examId'],
-        (int)$unit['unitNumber'],
-        $unit['name'],
-        $unit['shortDescription'],
-        (int)$unit['price'],
-        json_encode($unit['demoPages'] ?? []),
-        json_encode($unit['fullPages'] ?? []),
-        $unit['pdfUrl'] ?? null,
-        $unit['pdfName'] ?? null
-    ]);
+    if ($useMySQL) {
+        try {
+            $stmt = $pdo->prepare("INSERT INTO `" . DB_PREFIX . "notes` (id, examId, unitNumber, name, shortDescription, price, demoPages, fullPages, pdfUrl, pdfName) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+            $stmt->execute([
+                $unit['id'],
+                $unit['examId'],
+                (int)$unit['unitNumber'],
+                $unit['name'],
+                $unit['shortDescription'],
+                (int)$unit['price'],
+                json_encode($unit['demoPages'] ?? []),
+                json_encode($unit['fullPages'] ?? []),
+                $unit['pdfUrl'] ?? null,
+                $unit['pdfName'] ?? null
+            ]);
+        } catch (Exception $e) {
+            $useMySQL = false;
+        }
+    }
+
+    if (!$useMySQL) {
+        $notes = fetchAllNotes();
+        // Check if exists, overwrite or append
+        $exists = false;
+        foreach ($notes as &$n) {
+            if ($n['id'] === $unit['id']) {
+                $n = $unit;
+                $exists = true;
+                break;
+            }
+        }
+        if (!$exists) {
+            $notes[] = $unit;
+        }
+        saveNotesListFallback($notes);
+    }
 
     echo json_encode([
         'success' => true,
-        'notes' => fetchAllNotes($pdo)
+        'notes' => fetchAllNotes()
     ]);
     exit;
 }
@@ -339,12 +563,29 @@ if ($route === 'notes/remove-unit' && $_SERVER['REQUEST_METHOD'] === 'POST') {
         exit;
     }
 
-    $stmt = $pdo->prepare("DELETE FROM `" . DB_PREFIX . "notes` WHERE id = ?");
-    $stmt->execute([$unitId]);
+    if ($useMySQL) {
+        try {
+            $stmt = $pdo->prepare("DELETE FROM `" . DB_PREFIX . "notes` WHERE id = ?");
+            $stmt->execute([$unitId]);
+        } catch (Exception $e) {
+            $useMySQL = false;
+        }
+    }
+
+    if (!$useMySQL) {
+        $notes = fetchAllNotes();
+        $filtered = [];
+        foreach ($notes as $n) {
+            if ($n['id'] !== $unitId) {
+                $filtered[] = $n;
+            }
+        }
+        saveNotesListFallback($filtered);
+    }
 
     echo json_encode([
         'success' => true,
-        'notes' => fetchAllNotes($pdo)
+        'notes' => fetchAllNotes()
     ]);
     exit;
 }
@@ -354,11 +595,9 @@ if ($route === 'admin/verify-login' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     $username = $input['username'] ?? '';
     $password = $input['password'] ?? '';
 
-    $stmt = $pdo->prepare("SELECT * FROM `" . DB_PREFIX . "admin_config` WHERE LOWER(username) = ? LIMIT 1");
-    $stmt->execute([strtolower(trim($username))]);
-    $admin = $stmt->fetch();
+    $admin = getAdminCredentials();
 
-    if ($admin && $password === $admin['password']) {
+    if ($admin && strtolower(trim($username)) === strtolower(trim($admin['username'])) && $password === $admin['password']) {
         echo json_encode(['success' => true, 'username' => $admin['username']]);
     } else {
         http_response_code(401);
@@ -371,12 +610,10 @@ if ($route === 'admin/verify-login' && $_SERVER['REQUEST_METHOD'] === 'POST') {
 if ($route === 'admin/forgot-password-question' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     $username = $input['username'] ?? '';
 
-    $stmt = $pdo->prepare("SELECT security_question FROM `" . DB_PREFIX . "admin_config` WHERE LOWER(username) = ? LIMIT 1");
-    $stmt->execute([strtolower(trim($username))]);
-    $q = $stmt->fetchColumn();
+    $admin = getAdminCredentials();
 
-    if ($q) {
-        echo json_encode(['success' => true, 'securityQuestion' => $q]);
+    if ($admin && strtolower(trim($username)) === strtolower(trim($admin['username']))) {
+        echo json_encode(['success' => true, 'securityQuestion' => $admin['security_question']]);
     } else {
         http_response_code(404);
         echo json_encode(['error' => 'User ID not found']);
@@ -396,11 +633,9 @@ if ($route === 'admin/forgot-password-reset' && $_SERVER['REQUEST_METHOD'] === '
         exit;
     }
 
-    $stmt = $pdo->prepare("SELECT * FROM `" . DB_PREFIX . "admin_config` WHERE LOWER(username) = ? LIMIT 1");
-    $stmt->execute([strtolower(trim($username))]);
-    $admin = $stmt->fetch();
+    $admin = getAdminCredentials();
 
-    if (!$admin) {
+    if (!$admin || strtolower(trim($username)) !== strtolower(trim($admin['username']))) {
         http_response_code(404);
         echo json_encode(['error' => 'User ID mismatch']);
         exit;
@@ -419,8 +654,8 @@ if ($route === 'admin/forgot-password-reset' && $_SERVER['REQUEST_METHOD'] === '
         exit;
     }
 
-    $stmt = $pdo->prepare("UPDATE `" . DB_PREFIX . "admin_config` SET password = ? WHERE id = ?");
-    $stmt->execute([$newPassword, $admin['id']]);
+    $admin['password'] = $newPassword;
+    saveAdminCredentials($admin);
 
     echo json_encode(['success' => true]);
     exit;
@@ -434,8 +669,7 @@ if ($route === 'admin/update-credentials' && $_SERVER['REQUEST_METHOD'] === 'POS
     $newSecurityQuestion = $input['newSecurityQuestion'] ?? '';
     $newSecurityAnswer = $input['newSecurityAnswer'] ?? '';
 
-    $stmt = $pdo->query("SELECT * FROM `" . DB_PREFIX . "admin_config` LIMIT 1");
-    $admin = $stmt->fetch();
+    $admin = getAdminCredentials();
 
     if (!$admin || $currentPassword !== $admin['password']) {
         http_response_code(401);
@@ -459,8 +693,12 @@ if ($route === 'admin/update-credentials' && $_SERVER['REQUEST_METHOD'] === 'POS
     $updatedQ = !empty($newSecurityQuestion) ? trim($newSecurityQuestion) : $admin['security_question'];
     $updatedA = !empty($newSecurityAnswer) ? trim($newSecurityAnswer) : $admin['security_answer'];
 
-    $stmt = $pdo->prepare("UPDATE `" . DB_PREFIX . "admin_config` SET username = ?, password = ?, security_question = ?, security_answer = ? WHERE id = ?");
-    $stmt->execute([$updatedUsername, $updatedPassword, $updatedQ, $updatedA, $admin['id']]);
+    $admin['username'] = $updatedUsername;
+    $admin['password'] = $updatedPassword;
+    $admin['security_question'] = $updatedQ;
+    $admin['security_answer'] = $updatedA;
+
+    saveAdminCredentials($admin);
 
     echo json_encode(['success' => true, 'username' => $updatedUsername]);
     exit;
@@ -555,10 +793,15 @@ if ($isPdfPreview) {
         readfile($previewPath);
         exit;
     } else {
-        // Fallback: look for the full PDF URL in the MySQL database
-        $stmt = $pdo->prepare("SELECT pdfUrl FROM `" . DB_PREFIX . "notes` WHERE id = ? LIMIT 1");
-        $stmt->execute([$unitId]);
-        $pdfUrl = $stmt->fetchColumn();
+        // Fallback: look for the full PDF URL in the notes list
+        $notes = fetchAllNotes();
+        $pdfUrl = null;
+        foreach ($notes as $n) {
+            if ($n['id'] === $unitId) {
+                $pdfUrl = $n['pdfUrl'] ?? null;
+                break;
+            }
+        }
 
         if ($pdfUrl) {
             $relativePath = ltrim($pdfUrl, '/');
