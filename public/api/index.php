@@ -25,9 +25,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 // Extract Route parameter (routed via .htaccess query parameter 'route')
 $route = $_GET['route'] ?? '';
 
-// Route static file previews as PDF streams (cannot use application/json content-type)
+// Route static file previews and secure downloads as PDF streams (cannot use application/json content-type)
 $isPdfPreview = preg_match('/^pdf-preview\/(.+)$/', $route, $matches);
-if (!$isPdfPreview) {
+$isPdfDownload = preg_match('/^pdf-download\/(.+)$/', $route, $matches);
+if (!$isPdfPreview && !$isPdfDownload) {
     header("Content-Type: application/json; charset=UTF-8");
 }
 
@@ -40,6 +41,7 @@ $pdoError = null;
 $notesJsonPath = __DIR__ . '/notes_db.json';
 $queriesJsonPath = __DIR__ . '/queries_db.json';
 $adminJsonPath = __DIR__ . '/admin_db.json';
+$purchasesJsonPath = __DIR__ . '/purchases_db.json';
 
 // Initialize PDO Database Connection and Auto-Installer if database is configured
 try {
@@ -107,6 +109,20 @@ try {
                 `message` TEXT NOT NULL,
                 `replied` TINYINT(1) DEFAULT 0,
                 `createdAt` VARCHAR(50) NOT NULL
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;");
+
+            // 4. Create hsn_purchases table
+            $pdo->exec("CREATE TABLE IF NOT EXISTS `" . DB_PREFIX . "purchases` (
+                `orderId` VARCHAR(100) PRIMARY KEY,
+                `name` VARCHAR(100) NOT NULL,
+                `email` VARCHAR(100) NOT NULL,
+                `unitId` VARCHAR(100) NOT NULL,
+                `unitName` VARCHAR(255) NOT NULL,
+                `examId` VARCHAR(100) NOT NULL,
+                `price` INT NOT NULL,
+                `status` VARCHAR(20) NOT NULL,
+                `paymentMethod` VARCHAR(255) NOT NULL,
+                `timestamp` VARCHAR(50) NOT NULL
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;");
 
             // Seed original handwritten notes list from notes_db.json
@@ -235,6 +251,43 @@ function fetchAllQueries() {
 function saveQueriesFallback($queries) {
     global $queriesJsonPath;
     file_put_contents($queriesJsonPath, json_encode($queries, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
+}
+
+/**
+ * Fetch all purchase records
+ */
+function fetchAllPurchases() {
+    global $useMySQL, $pdo, $purchasesJsonPath;
+    
+    if ($useMySQL) {
+        try {
+            $stmt = $pdo->query("SELECT * FROM `" . DB_PREFIX . "purchases` ORDER BY timestamp DESC");
+            $purchases = $stmt->fetchAll();
+            foreach ($purchases as &$p) {
+                $p['price'] = (int)$p['price'];
+            }
+            return $purchases;
+        } catch (Exception $e) {
+            // fallback
+        }
+    }
+    
+    // File-System Fallback
+    if (file_exists($purchasesJsonPath)) {
+        $purchases = json_decode(file_get_contents($purchasesJsonPath), true);
+        if (is_array($purchases)) {
+            return $purchases;
+        }
+    }
+    return [];
+}
+
+/**
+ * Save purchases fallback (flat-file)
+ */
+function savePurchasesFallback($purchases) {
+    global $purchasesJsonPath;
+    file_put_contents($purchasesJsonPath, json_encode($purchases, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
 }
 
 /**
@@ -836,7 +889,234 @@ if ($isPdfPreview) {
     exit;
 }
 
-// 16. Fallback route not found
+// 16. GET /api/purchases - Fetch all purchases from MySQL/Fallback JSON
+if ($route === 'purchases' && $_SERVER['REQUEST_METHOD'] === 'GET') {
+    echo json_encode(fetchAllPurchases());
+    exit;
+}
+
+// 17. POST /api/purchases - Add or update a purchase record
+if ($route === 'purchases' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    $purchase = $input['purchase'] ?? null;
+    if (!$purchase || !isset($purchase['orderId'])) {
+        http_response_code(400);
+        echo json_encode(['error' => 'Missing purchase or orderId']);
+        exit;
+    }
+
+    if ($useMySQL) {
+        try {
+            $stmt = $pdo->prepare("INSERT INTO `" . DB_PREFIX . "purchases` (orderId, name, email, unitId, unitName, examId, price, status, paymentMethod, timestamp) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE status = VALUES(status)");
+            $stmt->execute([
+                $purchase['orderId'],
+                $purchase['name'],
+                $purchase['email'],
+                $purchase['unitId'],
+                $purchase['unitName'],
+                $purchase['examId'],
+                (int)$purchase['price'],
+                $purchase['status'],
+                $purchase['paymentMethod'],
+                $purchase['timestamp']
+            ]);
+        } catch (Exception $e) {
+            $useMySQL = false;
+        }
+    }
+
+    if (!$useMySQL) {
+        $purchases = fetchAllPurchases();
+        $existsIndex = -1;
+        for ($i = 0; $i < count($purchases); $i++) {
+            if ($purchases[$i]['orderId'] === $purchase['orderId']) {
+                $existsIndex = $i;
+                break;
+            }
+        }
+        if ($existsIndex > -1) {
+            $purchases[$existsIndex] = $purchase;
+        } else {
+            array_unshift($purchases, $purchase);
+        }
+        savePurchasesFallback($purchases);
+    }
+
+    echo json_encode(['success' => true, 'purchases' => fetchAllPurchases()]);
+    exit;
+}
+
+// 18. POST /api/purchases/approve - Approve a purchase record
+if ($route === 'purchases/approve' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    $orderId = $input['orderId'] ?? null;
+    if (!$orderId) {
+        http_response_code(400);
+        echo json_encode(['error' => 'Missing orderId']);
+        exit;
+    }
+
+    if ($useMySQL) {
+        try {
+            $stmt = $pdo->prepare("UPDATE `" . DB_PREFIX . "purchases` SET status = 'Successful' WHERE orderId = ?");
+            $stmt->execute([$orderId]);
+        } catch (Exception $e) {
+            $useMySQL = false;
+        }
+    }
+
+    if (!$useMySQL) {
+        $purchases = fetchAllPurchases();
+        foreach ($purchases as &$p) {
+            if ($p['orderId'] === $orderId) {
+                $p['status'] = 'Successful';
+                break;
+            }
+        }
+        savePurchasesFallback($purchases);
+    }
+
+    echo json_encode(['success' => true, 'purchases' => fetchAllPurchases()]);
+    exit;
+}
+
+// 19. POST /api/purchases/decline - Decline/Remove a purchase record
+if ($route === 'purchases/decline' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    $orderId = $input['orderId'] ?? null;
+    if (!$orderId) {
+        http_response_code(400);
+        echo json_encode(['error' => 'Missing orderId']);
+        exit;
+    }
+
+    if ($useMySQL) {
+        try {
+            $stmt = $pdo->prepare("DELETE FROM `" . DB_PREFIX . "purchases` WHERE orderId = ?");
+            $stmt->execute([$orderId]);
+        } catch (Exception $e) {
+            $useMySQL = false;
+        }
+    }
+
+    if (!$useMySQL) {
+        $purchases = fetchAllPurchases();
+        $filtered = [];
+        foreach ($purchases as $p) {
+            if ($p['orderId'] !== $orderId) {
+                $filtered[] = $p;
+            }
+        }
+        savePurchasesFallback($filtered);
+    }
+
+    echo json_encode(['success' => true, 'purchases' => fetchAllPurchases()]);
+    exit;
+}
+
+// 20. POST /api/generate-pdf-token - Authenticate buyer and generate secure temporary download token
+if ($route === 'generate-pdf-token' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    $unitId = $input['unitId'] ?? '';
+    $orderId = $input['orderId'] ?? '';
+
+    if (!$unitId || !$orderId) {
+        http_response_code(400);
+        echo json_encode(['error' => 'Missing unitId or orderId']);
+        exit;
+    }
+
+    $purchases = fetchAllPurchases();
+    $found = null;
+    foreach ($purchases as $p) {
+        if ($p['unitId'] === $unitId && $p['orderId'] === $orderId) {
+            $found = $p;
+            break;
+        }
+    }
+
+    if (!$found || $found['status'] !== 'Successful') {
+        http_response_code(403);
+        echo json_encode(['error' => 'No successful purchase record found. Please complete payment first.']);
+        exit;
+    }
+
+    $secret = defined('RAZORPAY_KEY_SECRET') ? RAZORPAY_KEY_SECRET : 'f2scYz1fz3Qugba12DjhqmMD';
+    $expires = time() + 3600; // 1 hour expiry
+    $token = hash_hmac('sha256', "$unitId|$orderId|$expires", $secret);
+
+    echo json_encode([
+        'success' => true,
+        'downloadUrl' => "/api/pdf-download/$unitId?orderId=" . urlencode($orderId) . "&expires=$expires&token=$token"
+    ]);
+    exit;
+}
+
+// 21. GET /api/pdf-download/:unitId - Validate token and stream the full physical PDF file securely
+if ($isPdfDownload) {
+    $unitId = $matches[1] ?? '';
+    $orderId = $_GET['orderId'] ?? '';
+    $expires = (int)($_GET['expires'] ?? 0);
+    $token = $_GET['token'] ?? '';
+
+    if (!$unitId || !$orderId || !$expires || !$token) {
+        http_response_code(400);
+        echo "Missing secure download parameters.";
+        exit;
+    }
+
+    if (time() > $expires) {
+        http_response_code(403);
+        echo "This secure download link has expired. Please refresh the page to generate a new link.";
+        exit;
+    }
+
+    $secret = defined('RAZORPAY_KEY_SECRET') ? RAZORPAY_KEY_SECRET : 'f2scYz1fz3Qugba12DjhqmMD';
+    $expectedToken = hash_hmac('sha256', "$unitId|$orderId|$expires", $secret);
+
+    if (!hash_equals($expectedToken, $token)) {
+        http_response_code(403);
+        echo "Invalid secure download token. Access denied.";
+        exit;
+    }
+
+    // Get note details to find file path
+    $notes = fetchAllNotes();
+    $pdfUrl = null;
+    $pdfName = null;
+    foreach ($notes as $n) {
+        if ($n['id'] === $unitId) {
+            $pdfUrl = $n['pdfUrl'] ?? null;
+            $pdfName = $n['pdfName'] ?? null;
+            break;
+        }
+    }
+
+    if (!$pdfUrl) {
+        http_response_code(404);
+        echo "PDF file path not associated with this unit. Please contact admin.";
+        exit;
+    }
+
+    $uploadsDir = dirname(dirname(__DIR__)) . '/uploads';
+    $fileName = basename($pdfUrl);
+    $filePath = $uploadsDir . '/' . $fileName;
+
+    if (!file_exists($filePath)) {
+        http_response_code(404);
+        echo "The requested original PDF file was not found on the server. Please contact Rajesh Ji at handscriptnotesak47@gmail.com.";
+        exit;
+    }
+
+    $downloadName = $pdfName ?: "{$unitId}.pdf";
+    if (substr($downloadName, -4) !== '.pdf') {
+        $downloadName .= '.pdf';
+    }
+
+    header("Content-Type: application/pdf");
+    header("Content-Disposition: attachment; filename=\"$downloadName\"");
+    header("Content-Length: " . filesize($filePath));
+    readfile($filePath);
+    exit;
+}
+
+// 22. Fallback route not found
 http_response_code(404);
 echo json_encode(['error' => 'Route not found: ' . $route]);
 exit;

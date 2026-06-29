@@ -61,6 +61,37 @@ export default function PaymentCheckout({ unit, user, purchases, onPaymentSucces
       const fileName = unit.pdfName || `${unit.examId}_Unit_${unit.unitNumber}_Original_Handwritten_Notes.pdf`;
       let actualPdfUrl = unit.pdfUrl;
 
+      // Unlocked full physical PDF - must acquire secure signed download URL from backend
+      const savedPurchases = localStorage.getItem('hsn_purchases');
+      let purchases: any[] = [];
+      if (savedPurchases) {
+        try {
+          purchases = JSON.parse(savedPurchases);
+        } catch (e) {
+          console.error('Failed to parse purchases from localStorage:', e);
+        }
+      }
+      const successfulPurchase = purchases.find((p: any) => p.unitId === unit.id && p.status === 'Successful');
+      const orderIdToUse = successfulPurchase ? successfulPurchase.orderId : (generatedRefId || '');
+
+      if (orderIdToUse) {
+        try {
+          const tokenRes = await fetch('/api/generate-pdf-token', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ unitId: unit.id, orderId: orderIdToUse })
+          });
+          if (tokenRes.ok) {
+            const tokenData = await tokenRes.json();
+            if (tokenData.success && tokenData.downloadUrl) {
+              actualPdfUrl = tokenData.downloadUrl;
+            }
+          }
+        } catch (tokenErr) {
+          console.error("Failed to generate secure PDF token for download:", tokenErr);
+        }
+      }
+
       // Fetch as a blob to force-download the file reliably across all platforms & iframes
       const response = await fetch(actualPdfUrl);
       if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);

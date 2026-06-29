@@ -20,10 +20,36 @@ async function startServer() {
   // Path for storing our persistent data
   const DB_PATH = path.join(process.cwd(), 'notes_db.json');
   const UPLOADS_DIR = path.join(process.cwd(), 'uploads');
+  const PURCHASES_DB_PATH = path.join(process.cwd(), 'purchases_db.json');
 
-  // Ensure uploads directory exists
+  // Ensure uploads directory exists and is secured via .htaccess
   if (!fs.existsSync(UPLOADS_DIR)) {
     fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+  }
+  const htaccessPath = path.join(UPLOADS_DIR, '.htaccess');
+  if (!fs.existsSync(htaccessPath)) {
+    fs.writeFileSync(htaccessPath, 'Deny from all\n', 'utf8');
+  }
+
+  // Helper functions for loading and saving purchases
+  function loadPurchases(): any[] {
+    if (fs.existsSync(PURCHASES_DB_PATH)) {
+      try {
+        const data = fs.readFileSync(PURCHASES_DB_PATH, 'utf8');
+        return JSON.parse(data);
+      } catch (e) {
+        console.error('Failed to read purchases_db.json:', e);
+      }
+    }
+    return [];
+  }
+
+  function savePurchases(purchases: any[]) {
+    try {
+      fs.writeFileSync(PURCHASES_DB_PATH, JSON.stringify(purchases, null, 2), 'utf8');
+    } catch (e) {
+      console.error('Failed to write purchases_db.json:', e);
+    }
   }
 
   // Helper functions for loading and saving notes data
@@ -449,6 +475,149 @@ async function startServer() {
   // Get notes list
   app.get('/api/notes', (req, res) => {
     res.json(loadNotes());
+  });
+
+  // GET /api/purchases - Fetch all purchases from server DB
+  app.get('/api/purchases', (req, res) => {
+    res.json(loadPurchases());
+  });
+
+  // POST /api/purchases - Log or sync a purchase record with the server DB
+  app.post('/api/purchases', (req, res) => {
+    try {
+      const { purchase } = req.body;
+      if (!purchase || !purchase.orderId) {
+        return res.status(400).json({ error: 'Missing purchase or orderId' });
+      }
+      const purchases = loadPurchases();
+      // Avoid duplicates
+      const existsIndex = purchases.findIndex((p: any) => p.orderId === purchase.orderId);
+      if (existsIndex > -1) {
+        purchases[existsIndex] = purchase;
+      } else {
+        purchases.unshift(purchase);
+      }
+      savePurchases(purchases);
+      res.json({ success: true, purchases });
+    } catch (err: any) {
+      console.error('Error logging purchase:', err);
+      res.status(500).json({ error: 'Failed to log purchase on server.' });
+    }
+  });
+
+  // POST /api/purchases/approve - Admin approves a pending purchase
+  app.post('/api/purchases/approve', (req, res) => {
+    try {
+      const { orderId } = req.body;
+      if (!orderId) {
+        return res.status(400).json({ error: 'Missing orderId' });
+      }
+      const purchases = loadPurchases();
+      const updated = purchases.map((p: any) => 
+        p.orderId === orderId ? { ...p, status: 'Successful' } : p
+      );
+      savePurchases(updated);
+      res.json({ success: true, purchases: updated });
+    } catch (err: any) {
+      console.error('Error approving purchase:', err);
+      res.status(500).json({ error: 'Failed to approve purchase.' });
+    }
+  });
+
+  // POST /api/purchases/decline - Admin rejects/declines a purchase
+  app.post('/api/purchases/decline', (req, res) => {
+    try {
+      const { orderId } = req.body;
+      if (!orderId) {
+        return res.status(400).json({ error: 'Missing orderId' });
+      }
+      const purchases = loadPurchases();
+      const filtered = purchases.filter((p: any) => p.orderId !== orderId);
+      savePurchases(filtered);
+      res.json({ success: true, purchases: filtered });
+    } catch (err: any) {
+      console.error('Error declining purchase:', err);
+      res.status(500).json({ error: 'Failed to decline purchase.' });
+    }
+  });
+
+  // POST /api/generate-pdf-token - Authenticates a purchaser and generates a secure temporary download token
+  app.post('/api/generate-pdf-token', (req, res) => {
+    try {
+      const { unitId, orderId } = req.body;
+      if (!unitId || !orderId) {
+        return res.status(400).json({ error: 'Missing unitId or orderId' });
+      }
+
+      const purchases = loadPurchases();
+      const purchase = purchases.find((p: any) => p.unitId === unitId && p.orderId === orderId);
+
+      if (!purchase || purchase.status !== 'Successful') {
+        return res.status(403).json({ error: 'No successful purchase record found. Please complete payment first.' });
+      }
+
+      const secret = process.env.RAZORPAY_KEY_SECRET || 'f2scYz1fz3Qugba12DjhqmMD';
+      const expires = Math.floor(Date.now() / 1000) + 3600; // 1 hour expiry
+      const token = crypto.createHmac('sha256', secret).update(`${unitId}|${orderId}|${expires}`).digest('hex');
+
+      res.json({
+        success: true,
+        downloadUrl: `/api/pdf-download/${unitId}?orderId=${encodeURIComponent(orderId)}&expires=${expires}&token=${token}`
+      });
+    } catch (err: any) {
+      console.error('Error generating secure token:', err);
+      res.status(500).json({ error: 'Failed to generate secure temporary link.' });
+    }
+  });
+
+  // GET /api/pdf-download/:unitId - Streams the secure full PDF directly after validating the temporary token
+  app.get('/api/pdf-download/:unitId', (req, res) => {
+    try {
+      const { unitId } = req.params;
+      const { orderId, expires, token } = req.query;
+
+      if (!unitId || !orderId || !expires || !token) {
+        return res.status(400).send('Missing secure download parameters.');
+      }
+
+      // Verify link expiration
+      const nowSecs = Math.floor(Date.now() / 1000);
+      if (nowSecs > Number(expires)) {
+        return res.status(403).send('This secure download link has expired. Please refresh the page to generate a new link.');
+      }
+
+      // Verify cryptographic token signature
+      const secret = process.env.RAZORPAY_KEY_SECRET || 'f2scYz1fz3Qugba12DjhqmMD';
+      const expectedToken = crypto.createHmac('sha256', secret).update(`${unitId}|${orderId}|${expires}`).digest('hex');
+
+      if (token !== expectedToken) {
+        return res.status(403).send('Invalid secure download token. Access denied.');
+      }
+
+      // Load notes list to fetch actual file path
+      const notes = loadNotes();
+      const note = notes.find((n: any) => n.id === unitId);
+      if (!note || !note.pdfUrl) {
+        return res.status(404).send('No original physical PDF is associated with this unit block yet.');
+      }
+
+      const relativePath = note.pdfUrl.startsWith('/') ? note.pdfUrl.slice(1) : note.pdfUrl;
+      const filePath = path.join(process.cwd(), relativePath);
+
+      if (!fs.existsSync(filePath)) {
+        return res.status(404).send('The requested original handwritten PDF file was not found on the server. Please contact Rajesh Ji at handscriptnotesak47@gmail.com.');
+      }
+
+      const fileName = note.pdfName || `${unitId}.pdf`;
+      const downloadName = fileName.endsWith('.pdf') ? fileName : `${fileName}.pdf`;
+
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `attachment; filename="${downloadName}"`);
+      fs.createReadStream(filePath).pipe(res);
+    } catch (err: any) {
+      console.error('Error streaming secure PDF download:', err);
+      res.status(500).send('Failed to securely process your PDF file download.');
+    }
   });
 
   // GET /api/pdf-preview/:unitId - Dynamically extracts starting 4 pages of any uploaded PDF securely

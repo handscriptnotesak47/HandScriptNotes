@@ -197,6 +197,49 @@ export default function App() {
       });
   }, []);
 
+  // Load live purchases from server database and synchronize locally
+  useEffect(() => {
+    const fetchPurchases = () => {
+      fetch('/api/purchases')
+        .then((res) => {
+          if (!res.ok) throw new Error('Live purchases fetch failed');
+          return res.json();
+        })
+        .then((data) => {
+          if (Array.isArray(data)) {
+            setPurchases(data);
+
+            // Sync user's unlocked units from loaded purchases if logged in
+            if (user.isLoggedIn) {
+              const userEmail = user.email.toLowerCase();
+              const unlockedIds = data
+                .filter((p: any) => p.email.toLowerCase() === userEmail && p.status === 'Successful')
+                .map((p: any) => p.unitId);
+              setUser((curr) => ({
+                ...curr,
+                purchasedUnitIds: Array.from(new Set([...curr.purchasedUnitIds, ...unlockedIds]))
+              }));
+            } else {
+              // Sync guest unlocked items in localStorage
+              data.forEach((p: any) => {
+                if (p.status === 'Successful') {
+                  localStorage.setItem(`guest_unlocked_${p.unitId}`, 'true');
+                }
+              });
+            }
+          }
+        })
+        .catch((err) => {
+          console.warn('Could not fetch purchases from server:', err);
+        });
+    };
+
+    fetchPurchases();
+    // Poll every 8s to fetch real-time updates of manual verification approvals
+    const intervalId = setInterval(fetchPurchases, 8000);
+    return () => clearInterval(intervalId);
+  }, [user.isLoggedIn, user.email]);
+
   // Load live inquiries/queries from Express server and set up live polling
   useEffect(() => {
     const fetchQueries = () => {
@@ -452,8 +495,27 @@ export default function App() {
 
   // Main purchase success record logging
   const handlePaymentCompleted = (record: PurchaseRecord) => {
-    // Add transaction to main purchases array
-    setPurchases((prev) => [record, ...prev]);
+    // Sync purchase with server DB
+    fetch('/api/purchases', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ purchase: record })
+    })
+    .then((res) => {
+      if (!res.ok) throw new Error('Purchase sync failed');
+      return res.json();
+    })
+    .then((data) => {
+      if (data.success && Array.isArray(data.purchases)) {
+        setPurchases(data.purchases);
+      } else {
+        setPurchases((prev) => [record, ...prev]);
+      }
+    })
+    .catch((err) => {
+      console.warn('Backend not reachable, logging purchase record locally:', err);
+      setPurchases((prev) => [record, ...prev]);
+    });
 
     // If logged in and the purchase is already Successful (e.g. sandbox bypass), sync to library
     if (record.status === 'Successful') {
@@ -704,25 +766,55 @@ export default function App() {
   };
 
   const handleApprovePurchase = (orderId: string) => {
-    setPurchases((prev) =>
-      prev.map((p) => {
-        if (p.orderId === orderId) {
-          const updated = { ...p, status: 'Successful' as const };
-          
-          if (user.isLoggedIn && p.email.toLowerCase() === user.email.toLowerCase()) {
+    fetch('/api/purchases/approve', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ orderId })
+    })
+    .then((res) => {
+      if (!res.ok) throw new Error('Failed to approve purchase on server');
+      return res.json();
+    })
+    .then((data) => {
+      if (data.success && Array.isArray(data.purchases)) {
+        setPurchases(data.purchases);
+        
+        // Also update local user/guest states
+        const approvedPurchase = data.purchases.find((p: any) => p.orderId === orderId);
+        if (approvedPurchase) {
+          if (user.isLoggedIn && approvedPurchase.email.toLowerCase() === user.email.toLowerCase()) {
             setUser((curr) => ({
               ...curr,
-              purchasedUnitIds: Array.from(new Set([...curr.purchasedUnitIds, p.unitId]))
+              purchasedUnitIds: Array.from(new Set([...curr.purchasedUnitIds, approvedPurchase.unitId]))
             }));
           } else {
-            localStorage.setItem(`guest_unlocked_${p.unitId}`, 'true');
+            localStorage.setItem(`guest_unlocked_${approvedPurchase.unitId}`, 'true');
           }
-          
-          return updated;
         }
-        return p;
-      })
-    );
+      }
+    })
+    .catch((err) => {
+      console.warn('Backend not reachable, approving purchase record locally:', err);
+      setPurchases((prev) =>
+        prev.map((p) => {
+          if (p.orderId === orderId) {
+            const updated = { ...p, status: 'Successful' as const };
+            
+            if (user.isLoggedIn && p.email.toLowerCase() === user.email.toLowerCase()) {
+              setUser((curr) => ({
+                ...curr,
+                purchasedUnitIds: Array.from(new Set([...curr.purchasedUnitIds, p.unitId]))
+              }));
+            } else {
+              localStorage.setItem(`guest_unlocked_${p.unitId}`, 'true');
+            }
+            
+            return updated;
+          }
+          return p;
+        })
+      );
+    });
     showToast(`Order ${orderId} has been successfully verified & notes unlocked.`, 'success');
   };
 
@@ -731,7 +823,25 @@ export default function App() {
     if (purchaseObj) {
       localStorage.removeItem(`guest_unlocked_${purchaseObj.unitId}`);
     }
-    setPurchases((prev) => prev.filter((p) => p.orderId !== orderId));
+
+    fetch('/api/purchases/decline', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ orderId })
+    })
+    .then((res) => {
+      if (!res.ok) throw new Error('Failed to decline purchase on server');
+      return res.json();
+    })
+    .then((data) => {
+      if (data.success && Array.isArray(data.purchases)) {
+        setPurchases(data.purchases);
+      }
+    })
+    .catch((err) => {
+      console.warn('Backend not reachable, declining purchase record locally:', err);
+      setPurchases((prev) => prev.filter((p) => p.orderId !== orderId));
+    });
     showToast(`Order ${orderId} has been declined & discarded.`, 'info');
   };
 

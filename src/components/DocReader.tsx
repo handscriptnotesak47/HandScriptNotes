@@ -64,6 +64,43 @@ export default function DocReader({ unit, isUnlocked, onBuy, onClose }: DocReade
           } else {
             throw new Error('PDF file was not found in the local database. Please try uploading it again.');
           }
+        } else if (actualPdfUrl && !actualPdfUrl.startsWith('data:')) {
+          // Unlocked full physical PDF - must acquire secure signed download URL from backend
+          const savedPurchases = localStorage.getItem('hsn_purchases');
+          let purchases: any[] = [];
+          if (savedPurchases) {
+            try {
+              purchases = JSON.parse(savedPurchases);
+            } catch (e) {
+              console.error('Failed to parse purchases from localStorage:', e);
+            }
+          }
+          const successfulPurchase = purchases.find((p: any) => p.unitId === unit.id && p.status === 'Successful');
+          const orderId = successfulPurchase ? successfulPurchase.orderId : null;
+
+          if (orderId) {
+            try {
+              const tokenRes = await fetch('/api/generate-pdf-token', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ unitId: unit.id, orderId })
+              });
+              if (tokenRes.ok) {
+                const tokenData = await tokenRes.json();
+                if (tokenData.success && tokenData.downloadUrl) {
+                  actualPdfUrl = tokenData.downloadUrl;
+                }
+              } else {
+                const errData = await tokenRes.json().catch(() => ({}));
+                throw new Error(errData.error || 'The secure PDF access token request failed.');
+              }
+            } catch (tokenErr: any) {
+              console.error("Failed to acquire secure PDF token:", tokenErr);
+              throw new Error(`Access verification failed: ${tokenErr.message || 'Check your internet connection.'}`);
+            }
+          } else {
+            throw new Error('Verification record is missing. If you have already paid, please contact Rajesh Ji with your payment receipt.');
+          }
         }
 
         if (actualPdfUrl.startsWith('data:application/pdf;base64,')) {
@@ -81,9 +118,22 @@ export default function DocReader({ unit, isUnlocked, onBuy, onClose }: DocReade
             setPdfError(null);
           }
         } else {
-          // Direct remote URL or path
+          // Fetch as blob to guarantee physical existence on Hostinger disk and handle missing states beautifully
+          const response = await fetch(actualPdfUrl);
+          if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(errorText || `Physical PDF missing on server disk (HTTP ${response.status})`);
+          }
+          const blob = await response.blob();
+          
+          if (blob.type !== 'application/pdf') {
+            const errorText = await blob.text();
+            throw new Error(errorText || 'Server returned an invalid document file.');
+          }
+
+          objectUrl = URL.createObjectURL(blob);
           if (active) {
-            setRenderedPdfUrl(actualPdfUrl);
+            setRenderedPdfUrl(objectUrl);
             setPdfError(null);
           }
         }
@@ -91,7 +141,7 @@ export default function DocReader({ unit, isUnlocked, onBuy, onClose }: DocReade
         console.error('Error generating safe blob URL for the PDF document:', err);
         if (active) {
           setPdfError(err?.message || 'Failed to parse or convert PDF into locally rendered document.');
-          setRenderedPdfUrl(isUnlocked ? (unit.pdfUrl || '') : `/api/pdf-preview/${unit.id}`);
+          setRenderedPdfUrl('');
         }
       }
     };
@@ -651,6 +701,37 @@ export default function DocReader({ unit, isUnlocked, onBuy, onClose }: DocReade
             alert('Unable to retrieve PDF file from database. Please re-upload it.');
             return;
           }
+        } else if (actualPdfUrl && !actualPdfUrl.startsWith('data:')) {
+          // Unlocked full physical PDF - must acquire secure signed download URL from backend
+          const savedPurchases = localStorage.getItem('hsn_purchases');
+          let purchases: any[] = [];
+          if (savedPurchases) {
+            try {
+              purchases = JSON.parse(savedPurchases);
+            } catch (e) {
+              console.error('Failed to parse purchases from localStorage:', e);
+            }
+          }
+          const successfulPurchase = purchases.find((p: any) => p.unitId === unit.id && p.status === 'Successful');
+          const orderId = successfulPurchase ? successfulPurchase.orderId : null;
+
+          if (orderId) {
+            try {
+              const tokenRes = await fetch('/api/generate-pdf-token', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ unitId: unit.id, orderId })
+              });
+              if (tokenRes.ok) {
+                const tokenData = await tokenRes.json();
+                if (tokenData.success && tokenData.downloadUrl) {
+                  actualPdfUrl = tokenData.downloadUrl;
+                }
+              }
+            } catch (tokenErr) {
+              console.error("Failed to generate secure PDF token for download:", tokenErr);
+            }
+          }
         }
 
         if (actualPdfUrl.startsWith('data:application/pdf;base64,')) {
@@ -1067,7 +1148,18 @@ export default function DocReader({ unit, isUnlocked, onBuy, onClose }: DocReade
                         {isUnlocked ? 'FULL ACCESS' : 'DEMO PREVIEW'}
                       </span>
                     </div>
-                    {renderedPdfUrl ? (
+                    {pdfError ? (
+                      <div className="flex-1 flex flex-col items-center justify-center p-12 text-center text-slate-400 h-[600px] bg-slate-950 rounded-b-2xl">
+                        <span className="text-5xl mb-4">⚠️</span>
+                        <h4 className="text-lg font-bold text-red-400 mb-2 font-sans">Failed to Load PDF Document</h4>
+                        <p className="text-sm text-slate-300 max-w-md bg-slate-900 p-4 border border-red-950/40 rounded-xl font-medium leading-relaxed font-sans">
+                          {pdfError}
+                        </p>
+                        <p className="text-xs text-slate-500 mt-4 max-w-xs font-sans">
+                          If you have recently purchased this unit, please try refreshing the page or contact support at <strong className="text-slate-400">handscriptnotesak47@gmail.com</strong>.
+                        </p>
+                      </div>
+                    ) : renderedPdfUrl ? (
                       <div className="w-full flex-1 flex flex-col">
                         {/* Interactive Warning banner with direct buy action when locked */}
                         {!isUnlocked ? (
