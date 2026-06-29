@@ -5,7 +5,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { ChevronLeft, ChevronRight, Lock, CheckCircle2, Eye, Printer, Layers, FileText, Check, Award } from 'lucide-react';
-import { NotesUnit, HandwrittenPage } from '../types';
+import { NotesUnit, HandwrittenPage, PurchaseRecord } from '../types';
 import { getPdf } from '../utils/pdfStorage';
 
 interface DocReaderProps {
@@ -13,9 +13,11 @@ interface DocReaderProps {
   isUnlocked: boolean;
   onBuy: (unit: NotesUnit) => void;
   onClose: () => void;
+  purchases?: PurchaseRecord[];
+  user?: any;
 }
 
-export default function DocReader({ unit, isUnlocked, onBuy, onClose }: DocReaderProps) {
+export default function DocReader({ unit, isUnlocked, onBuy, onClose, purchases, user }: DocReaderProps) {
   const isPedagogy1 = unit.examId === 'RSMSSB_BCI' && unit.unitNumber === 1;
   const [currentPageIndex, setCurrentPageIndex] = useState(0);
   const [viewMode, setViewMode] = useState<'scan' | 'pdf'>(
@@ -67,15 +69,17 @@ export default function DocReader({ unit, isUnlocked, onBuy, onClose }: DocReade
         } else if (actualPdfUrl && !actualPdfUrl.startsWith('data:')) {
           // Unlocked full physical PDF - must acquire secure signed download URL from backend
           const savedPurchases = localStorage.getItem('hsn_purchases');
-          let purchases: any[] = [];
+          let localPurchases: any[] = [];
           if (savedPurchases) {
             try {
-              purchases = JSON.parse(savedPurchases);
+              localPurchases = JSON.parse(savedPurchases);
             } catch (e) {
               console.error('Failed to parse purchases from localStorage:', e);
             }
           }
-          const successfulPurchase = purchases.find((p: any) => p.unitId === unit.id && p.status === 'Successful');
+          // Combine live state purchases (passed from App.tsx) and local purchases
+          const combinedPurchases = [...(purchases || []), ...localPurchases];
+          const successfulPurchase = combinedPurchases.find((p: any) => p.unitId === unit.id && p.status === 'Successful');
           const orderId = successfulPurchase ? successfulPurchase.orderId : null;
 
           if (orderId) {
@@ -704,15 +708,17 @@ export default function DocReader({ unit, isUnlocked, onBuy, onClose }: DocReade
         } else if (actualPdfUrl && !actualPdfUrl.startsWith('data:')) {
           // Unlocked full physical PDF - must acquire secure signed download URL from backend
           const savedPurchases = localStorage.getItem('hsn_purchases');
-          let purchases: any[] = [];
+          let localPurchases: any[] = [];
           if (savedPurchases) {
             try {
-              purchases = JSON.parse(savedPurchases);
+              localPurchases = JSON.parse(savedPurchases);
             } catch (e) {
               console.error('Failed to parse purchases from localStorage:', e);
             }
           }
-          const successfulPurchase = purchases.find((p: any) => p.unitId === unit.id && p.status === 'Successful');
+          // Combine live state purchases (passed from App.tsx) and local purchases
+          const combinedPurchases = [...(purchases || []), ...localPurchases];
+          const successfulPurchase = combinedPurchases.find((p: any) => p.unitId === unit.id && p.status === 'Successful');
           const orderId = successfulPurchase ? successfulPurchase.orderId : null;
 
           if (orderId) {

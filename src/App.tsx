@@ -220,9 +220,19 @@ export default function App() {
                 purchasedUnitIds: Array.from(new Set([...curr.purchasedUnitIds, ...unlockedIds]))
               }));
             } else {
-              // Sync guest unlocked items in localStorage
+              // Sync guest unlocked items in localStorage only if they match the guest's local purchases
+              const localSaved = localStorage.getItem('hsn_purchases');
+              let localPurchases: any[] = [];
+              if (localSaved) {
+                try {
+                  localPurchases = JSON.parse(localSaved);
+                } catch (e) {
+                  console.error('Failed to parse purchases from localStorage:', e);
+                }
+              }
+              const localOrderIds = new Set(localPurchases.map((lp: any) => lp.orderId));
               data.forEach((p: any) => {
-                if (p.status === 'Successful') {
+                if (p.status === 'Successful' && localOrderIds.has(p.orderId)) {
                   localStorage.setItem(`guest_unlocked_${p.unitId}`, 'true');
                 }
               });
@@ -1660,6 +1670,8 @@ export default function App() {
         <DocReader
           unit={activeReaderUnit}
           isUnlocked={isUnitUnlocked(activeReaderUnit.id)}
+          purchases={purchases}
+          user={user}
           onBuy={(unit) => {
             setActiveReaderUnit(null);
             setActiveCheckoutUnit(unit);

@@ -853,10 +853,25 @@ if ($route === 'verify-payment' && $_SERVER['REQUEST_METHOD'] === 'POST') {
 // 15. GET /api/pdf-preview/:unitId (Serves the secure 4-page sliced PDF directly from Hostinger disk)
 if ($isPdfPreview) {
     $unitId = $matches[1];
-    $uploadsDir = dirname(dirname(__DIR__)) . '/uploads';
-    $previewPath = $uploadsDir . '/' . $unitId . '-preview.pdf';
+    $rootDir = dirname(dirname(__DIR__));
+    
+    // Check multiple possible preview paths
+    $possiblePreviewPaths = [
+        $rootDir . '/uploads/' . $unitId . '-preview.pdf',
+        $rootDir . '/' . $unitId . '-preview.pdf',
+        $rootDir . '/public/uploads/' . $unitId . '-preview.pdf',
+        $rootDir . '/public/' . $unitId . '-preview.pdf'
+    ];
+    
+    $previewPath = null;
+    foreach ($possiblePreviewPaths as $pPath) {
+        if (file_exists($pPath) && is_file($pPath)) {
+            $previewPath = $pPath;
+            break;
+        }
+    }
 
-    if (file_exists($previewPath)) {
+    if ($previewPath) {
         header("Content-Type: application/pdf");
         header("Content-Disposition: inline; filename=\"preview_{$unitId}.pdf\"");
         readfile($previewPath);
@@ -865,21 +880,38 @@ if ($isPdfPreview) {
         // Fallback: look for the full PDF URL in the notes list
         $notes = fetchAllNotes();
         $pdfUrl = null;
+        $pdfName = null;
         foreach ($notes as $n) {
             if ($n['id'] === $unitId) {
                 $pdfUrl = $n['pdfUrl'] ?? null;
+                $pdfName = $n['pdfName'] ?? null;
                 break;
             }
         }
 
         if ($pdfUrl) {
-            $relativePath = ltrim($pdfUrl, '/');
-            $localPath = dirname(dirname(__DIR__)) . '/' . $relativePath;
-            if (file_exists($localPath)) {
-                header("Content-Type: application/pdf");
-                header("Content-Disposition: inline; filename=\"preview_{$unitId}.pdf\"");
-                readfile($localPath);
-                exit;
+            $fileName = basename($pdfUrl);
+            $originalName = $pdfName ? basename($pdfName) : '';
+            $possibleFullPaths = [
+                $rootDir . '/uploads/' . $fileName,
+                $rootDir . '/' . $fileName,
+                $rootDir . '/public/uploads/' . $fileName,
+                $rootDir . '/public/' . $fileName
+            ];
+            if ($originalName) {
+                $possibleFullPaths[] = $rootDir . '/uploads/' . $originalName;
+                $possibleFullPaths[] = $rootDir . '/' . $originalName;
+                $possibleFullPaths[] = $rootDir . '/public/uploads/' . $originalName;
+                $possibleFullPaths[] = $rootDir . '/public/' . $originalName;
+            }
+            
+            foreach ($possibleFullPaths as $fPath) {
+                if (file_exists($fPath) && is_file($fPath)) {
+                    header("Content-Type: application/pdf");
+                    header("Content-Disposition: inline; filename=\"preview_{$unitId}.pdf\"");
+                    readfile($fPath);
+                    exit;
+                }
             }
         }
     }
@@ -1094,13 +1126,45 @@ if ($isPdfDownload) {
         exit;
     }
 
-    $uploadsDir = dirname(dirname(__DIR__)) . '/uploads';
+    $rootDir = dirname(dirname(__DIR__));
     $fileName = basename($pdfUrl);
-    $filePath = $uploadsDir . '/' . $fileName;
+    $originalName = $pdfName ? basename($pdfName) : '';
 
-    if (!file_exists($filePath)) {
+    // List of possible paths on Hostinger server
+    $possiblePaths = [];
+    
+    if ($fileName) {
+        $possiblePaths[] = $rootDir . '/uploads/' . $fileName;
+        $possiblePaths[] = $rootDir . '/' . $fileName;
+        $possiblePaths[] = $rootDir . '/public/uploads/' . $fileName;
+        $possiblePaths[] = $rootDir . '/public/' . $fileName;
+    }
+    if ($originalName) {
+        $possiblePaths[] = $rootDir . '/uploads/' . $originalName;
+        $possiblePaths[] = $rootDir . '/' . $originalName;
+        $possiblePaths[] = $rootDir . '/public/uploads/' . $originalName;
+        $possiblePaths[] = $rootDir . '/public/' . $originalName;
+    }
+    
+    // Also check common variations like space decoded or encoded
+    if ($originalName && strpos($originalName, ' ') !== false) {
+        $urlEncodedName = rawurlencode($originalName);
+        $possiblePaths[] = $rootDir . '/uploads/' . $urlEncodedName;
+        $possiblePaths[] = $rootDir . '/' . $urlEncodedName;
+    }
+
+    $filePath = null;
+    foreach ($possiblePaths as $path) {
+        if (file_exists($path) && is_file($path)) {
+            $filePath = $path;
+            break;
+        }
+    }
+
+    if (!$filePath) {
         http_response_code(404);
-        echo "The requested original PDF file was not found on the server. Please contact Rajesh Ji at handscriptnotesak47@gmail.com.";
+        $searchedList = implode(', ', array_unique(array_map('basename', $possiblePaths)));
+        echo "The requested original PDF file was not found on the Hostinger server. We checked file names: [ $searchedList ] under the uploads/ and public_html root folders. Please make sure the file name is correct. Contact Rajesh Ji at handscriptnotesak47@gmail.com.";
         exit;
     }
 
