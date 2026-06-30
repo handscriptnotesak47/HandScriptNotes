@@ -669,11 +669,19 @@ export default function App() {
     }
   };
 
-  const handleUpdateNotePdf = async (unitId: string, pdfUrl: string, pdfName: string, pdfData?: string) => {
+  const handleUpdateNotePdf = async (unitId: string, pdfUrl: string, pdfName: string, pdfDataOrNotes?: string | NotesUnit[]) => {
+    if (Array.isArray(pdfDataOrNotes)) {
+      setNotesList(pdfDataOrNotes);
+      showToast('Original scanned PDF successfully attached and saved!', 'success');
+      return;
+    }
+
     // Optimistic local state update
     setNotesList((prevList) =>
       prevList.map((unit) => (unit.id === unitId ? { ...unit, pdfUrl, pdfName } : unit))
     );
+
+    const pdfData = typeof pdfDataOrNotes === 'string' ? pdfDataOrNotes : undefined;
 
     if (pdfData) {
       showToast('Preparing secure 4-page PDF preview...', 'info');
@@ -708,28 +716,54 @@ export default function App() {
     }
   };
 
-  const handleAddNewUnit = (newUnit: NotesUnit) => {
-    setNotesList((prev) => {
-      if (prev.some(u => u.id === newUnit.id)) {
-        return prev;
+  const handleAddNewUnit = async (unitOrFormData: NotesUnit | FormData) => {
+    if (unitOrFormData instanceof FormData) {
+      showToast('Registering new handwritten unit and uploading PDF...', 'info');
+      try {
+        const res = await fetch('/api/notes/add-unit', {
+          method: 'POST',
+          body: unitOrFormData
+        });
+        if (!res.ok) {
+          const errText = await res.text();
+          throw new Error(errText || `Server error ${res.status}`);
+        }
+        const data = await res.json();
+        if (data.success && data.notes) {
+          setNotesList(data.notes);
+          showToast('New handwritten PDF package registered live!', 'success');
+          return true; // signal success to reset form
+        } else {
+          throw new Error(data.error || 'Registration returned unsuccessful status');
+        }
+      } catch (err: any) {
+        console.error('Failed to add unit:', err);
+        showToast(`Failed to register unit: ${err.message || err}`, 'info');
+        throw err;
       }
-      return [...prev, newUnit];
-    });
+    } else {
+      setNotesList((prev) => {
+        if (prev.some(u => u.id === unitOrFormData.id)) {
+          return prev;
+        }
+        return [...prev, unitOrFormData];
+      });
 
-    fetch('/api/notes/add-unit', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ unit: newUnit })
-    })
-    .then(res => res.json())
-    .then(data => {
-      if (data.success && data.notes) {
-        setNotesList(data.notes);
-      }
-    })
-    .catch(err => console.error('Failed to sync new unit to server:', err));
+      fetch('/api/notes/add-unit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ unit: unitOrFormData })
+      })
+      .then(res => res.json())
+      .then(data => {
+        if (data.success && data.notes) {
+          setNotesList(data.notes);
+        }
+      })
+      .catch(err => console.error('Failed to sync new unit to server:', err));
 
-    showToast('New handwritten PDF package registered.', 'success');
+      showToast('New handwritten PDF package registered.', 'success');
+    }
   };
 
   const handleRemoveUnit = (unitId: string) => {

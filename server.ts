@@ -9,6 +9,7 @@ import AdmZip from 'adm-zip';
 import { PDFDocument } from 'pdf-lib';
 import dotenv from 'dotenv';
 import mysql from 'mysql2/promise';
+import multer from 'multer';
 
 dotenv.config();
 
@@ -34,6 +35,9 @@ async function startServer() {
   if (!fs.existsSync(htaccessPath)) {
     fs.writeFileSync(htaccessPath, 'Deny from all\n', 'utf8');
   }
+
+  // Multer middleware for binary multipart uploads
+  const upload = multer({ storage: multer.memoryStorage() });
 
   // Helper functions for loading and saving purchases
   function loadPurchases(): any[] {
@@ -254,6 +258,7 @@ async function startServer() {
       }
     } catch (err) {
       console.error('MySQL saveNotes failed:', err);
+      throw err;
     }
   }
 
@@ -809,17 +814,33 @@ async function startServer() {
     }
   });
 
-  // GET /api/pdf-preview/:unitId - Dynamically extracts starting 4 pages of any uploaded PDF securely
+  // GET /api/pdf-preview/:unitId - Dynamically extracts starting 4 pages of any uploaded PDF securely (or serves pre-sliced file)
   app.get('/api/pdf-preview/:unitId', async (req, res) => {
     const { unitId } = req.params;
-    const currentNotes = await loadNotes();
-    const unit = currentNotes.find(u => u.id === unitId);
-    
-    if (!unit || !unit.pdfUrl) {
-      return res.status(404).send('PDF not found for this unit');
-    }
 
     try {
+      // 1. Check if a pre-sliced preview file exists on disk
+      const previewFilePath = path.join(process.cwd(), 'uploads', 'pdfs', `${unitId}-preview.pdf`);
+      const previewFilePathOld = path.join(process.cwd(), 'uploads', `${unitId}-preview.pdf`);
+
+      if (fs.existsSync(previewFilePath)) {
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader('Content-Disposition', `inline; filename="preview_${unitId}.pdf"`);
+        return fs.createReadStream(previewFilePath).pipe(res);
+      } else if (fs.existsSync(previewFilePathOld)) {
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader('Content-Disposition', `inline; filename="preview_${unitId}.pdf"`);
+        return fs.createReadStream(previewFilePathOld).pipe(res);
+      }
+
+      // 2. Fallback to dynamic slicing of original file
+      const currentNotes = await loadNotes();
+      const unit = currentNotes.find(u => u.id === unitId);
+      
+      if (!unit || !unit.pdfUrl) {
+        return res.status(404).send('PDF not found for this unit');
+      }
+
       const relativePath = unit.pdfUrl.startsWith('/') ? unit.pdfUrl.slice(1) : unit.pdfUrl;
       const filePath = path.join(process.cwd(), relativePath);
 
@@ -903,17 +924,220 @@ async function startServer() {
     }
   });
 
-  // Add new unit
-  app.post('/api/notes/add-unit', async (req, res) => {
-    const { unit } = req.body;
+  // POST /api/notes/upload-pdf-file (Handles binary multipart uploads of full PDF + optional preview PDF)
+  app.post('/api/notes/upload-pdf-file', upload.fields([
+    { name: 'pdfFile', maxCount: 1 },
+    { name: 'pdfPreviewFile', maxCount: 1 }
+  ]), async (req: any, res) => {
+    const unitId = req.body.unitId;
+    const isNewUnit = req.body.isNewUnit === 'true';
+
+    if (!unitId) {
+      return res.status(400).json({ error: 'Missing unitId parameter.' });
+    }
+
+    const files = req.files as { [fieldname: string]: Express.Multer.File[] };
+    const pdfFile = files?.pdfFile?.[0];
+
+    if (!pdfFile) {
+      return res.status(400).json({ error: 'No PDF file uploaded.' });
+    }
+
     try {
+      const pdfsDir = path.join(UPLOADS_DIR, 'pdfs');
+      if (!fs.existsSync(pdfsDir)) {
+        fs.mkdirSync(pdfsDir, { recursive: true });
+      }
+
+      // Sanitize & generate distinct filename
+      const originalName = path.basename(pdfFile.originalname);
+      const sanitizedName = originalName.replace(/[^a-zA-Z0-9_\-\.]/g, '_');
+      const fullFileName = `${unitId}-${Math.floor(Date.now() / 1000)}-${sanitizedName}`;
+      const fullFilePath = path.join(pdfsDir, fullFileName);
+
+      fs.writeFileSync(fullFilePath, pdfFile.buffer);
+
+      // Verify file exists on server disk
+      if (!fs.existsSync(fullFilePath)) {
+        throw new Error("File verification failed. The file was not saved on server disk.");
+      }
+
+      const publicUrl = `/uploads/pdfs/${fullFileName}`;
+
+      // Process preview file if provided
+      const pdfPreviewFile = files?.pdfPreviewFile?.[0];
+      if (pdfPreviewFile) {
+        const previewFileName = `${unitId}-preview.pdf`;
+        const previewFilePath = path.join(pdfsDir, previewFileName);
+        const oldPreviewFilePath = path.join(UPLOADS_DIR, previewFileName);
+
+        fs.writeFileSync(previewFilePath, pdfPreviewFile.buffer);
+        if (fs.existsSync(previewFilePath)) {
+          fs.copyFileSync(previewFilePath, oldPreviewFilePath);
+        }
+      }
+
+      // Only update database if it's NOT a new unit (existing units get synced immediately)
+      let notes = await loadNotes();
+      if (!isNewUnit) {
+        notes = notes.map(unit => 
+          unit.id === unitId ? { ...unit, pdfUrl: publicUrl, pdfName: originalName } : unit
+        );
+        await saveNotes(notes);
+      }
+
+      res.json({
+        success: true,
+        pdfUrl: publicUrl,
+        pdfName: originalName,
+        notes: await loadNotes()
+      });
+    } catch (err: any) {
+      console.error("PDF Upload error:", err);
+      res.status(500).json({ error: `Failed to process PDF upload: ${err.message}` });
+    }
+  });
+
+  // Add new unit (supports multipart form-data for robust uploads and JSON fallback)
+  app.post('/api/notes/add-unit', upload.fields([
+    { name: 'pdfFile', maxCount: 1 },
+    { name: 'pdfPreviewFile', maxCount: 1 }
+  ]), async (req: any, res) => {
+    let savedFilePath = '';
+
+    try {
+      // 1. Check if request is multipart or JSON
+      const isMultipart = req.files && (req.files.pdfFile || req.files.pdfPreviewFile);
+
+      let examId: string;
+      let unitNumber: number;
+      let name: string;
+      let shortDescription: string;
+      let price: number;
+      let pdfUrl: string | undefined = undefined;
+      let pdfName: string | undefined = undefined;
+
       const currentNotes = await loadNotes();
-      const updated = [...currentNotes, unit];
-      await saveNotes(updated);
-      res.json({ success: true, notes: updated });
+
+      if (isMultipart) {
+        examId = req.body.examId;
+        unitNumber = Number(req.body.unitNumber);
+        name = req.body.name;
+        shortDescription = req.body.shortDescription;
+        price = Number(req.body.price);
+
+        if (!examId || isNaN(unitNumber) || !name || !shortDescription || isNaN(price)) {
+          return res.status(400).json({ error: 'Missing or invalid metadata fields.' });
+        }
+
+        const files = req.files as { [fieldname: string]: Express.Multer.File[] };
+        const pdfFile = files?.pdfFile?.[0];
+
+        if (!pdfFile) {
+          return res.status(400).json({ error: 'No PDF file uploaded.' });
+        }
+
+        const unitId = `${examId.toLowerCase().replace(/_/g, '-')}-unit-${unitNumber}`;
+        if (currentNotes.some(u => u.id === unitId)) {
+          return res.status(400).json({ error: `Conflict Error: A note package with Unit Number "${unitNumber}" already exists for the "${examId}" exam list.` });
+        }
+
+        const pdfsDir = path.join(UPLOADS_DIR, 'pdfs');
+        if (!fs.existsSync(pdfsDir)) {
+          fs.mkdirSync(pdfsDir, { recursive: true });
+        }
+
+        // Save original PDF file cleanly
+        const originalName = path.basename(pdfFile.originalname);
+        const sanitizedName = originalName.replace(/[^a-zA-Z0-9_\-\.]/g, '_');
+        const fullFileName = `${unitId}-${Math.floor(Date.now() / 1000)}-${sanitizedName}`;
+        const fullFilePath = path.join(pdfsDir, fullFileName);
+
+        fs.writeFileSync(fullFilePath, pdfFile.buffer);
+        savedFilePath = fullFilePath;
+
+        // Verify file exists on server disk
+        if (!fs.existsSync(fullFilePath)) {
+          throw new Error("File verification failed. The file was not saved on server disk.");
+        }
+
+        pdfUrl = `/uploads/pdfs/${fullFileName}`;
+        pdfName = originalName;
+
+        // Process preview file if provided
+        const pdfPreviewFile = files?.pdfPreviewFile?.[0];
+        if (pdfPreviewFile) {
+          const previewFileName = `${unitId}-preview.pdf`;
+          const previewFilePath = path.join(pdfsDir, previewFileName);
+          const oldPreviewFilePath = path.join(UPLOADS_DIR, previewFileName);
+
+          fs.writeFileSync(previewFilePath, pdfPreviewFile.buffer);
+          if (fs.existsSync(previewFilePath)) {
+            fs.copyFileSync(previewFilePath, oldPreviewFilePath);
+          }
+        }
+
+        const newUnit: NotesUnit = {
+          id: unitId,
+          examId: examId as any,
+          unitNumber,
+          name,
+          shortDescription,
+          price,
+          pdfUrl,
+          pdfName,
+          demoPages: [
+            {
+              pageNumber: 1,
+              title: `${name} (Uploaded)`,
+              paragraphs: [
+                '✍️ SYSTEM GENERATED DEMO NOTE:',
+                'This syllabus note has been compiled, parsed, and secure-signed by the Admin console.',
+                '👉 Standard PDF structures apply. High priority theoretical insights and practice answers unlocked.'
+              ]
+            }
+          ],
+          fullPages: [
+            {
+              pageNumber: 1,
+              title: `${name} (Full Syllabus)`,
+              paragraphs: [
+                '✍️ SYSTEM GENERATED CORE NOTES:',
+                'This content is fully unlocked. Access is provided permanently to your student portal.',
+                '• Review direct formulas and schematic mappings beneath.'
+              ]
+            }
+          ]
+        };
+
+        const updated = [...currentNotes, newUnit];
+        await saveNotes(updated);
+
+        res.json({ success: true, notes: await loadNotes() });
+      } else {
+        // Fallback for JSON body
+        const { unit } = req.body;
+        if (!unit) {
+          return res.status(400).json({ error: 'Missing unit parameter.' });
+        }
+        if (currentNotes.some(u => u.id === unit.id)) {
+          return res.status(400).json({ error: 'Conflict Error: A note package with this Unit already exists.' });
+        }
+        const updated = [...currentNotes, unit];
+        await saveNotes(updated);
+        res.json({ success: true, notes: await loadNotes() });
+      }
     } catch (err: any) {
       console.error('Error adding unit:', err);
-      res.status(500).json({ error: 'Failed to add unit' });
+      // Clean up newly uploaded file on database failure
+      if (savedFilePath && fs.existsSync(savedFilePath)) {
+        try {
+          fs.unlinkSync(savedFilePath);
+        } catch (cleanupErr) {
+          console.error('Failed to delete uploaded file after DB failure:', cleanupErr);
+        }
+      }
+      res.status(500).json({ error: `Failed to add unit: ${err.message}` });
     }
   });
 

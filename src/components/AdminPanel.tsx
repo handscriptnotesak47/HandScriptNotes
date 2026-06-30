@@ -14,8 +14,8 @@ interface AdminPanelProps {
   queries: ContactQuery[];
   notesList: NotesUnit[];
   onUpdateNotePrice: (unitId: string, newPrice: number) => void;
-  onUpdateNotePdf: (unitId: string, pdfUrl: string, pdfName: string, pdfData?: string) => void;
-  onAddNewUnit: (newUnit: NotesUnit) => void;
+  onUpdateNotePdf: (unitId: string, pdfUrl: string, pdfName: string, pdfDataOrNotes?: any) => void;
+  onAddNewUnit: (newUnit: any) => any;
   onRemoveUnit: (unitId: string) => void;
   onAnswerQuery: (queryId: string) => void;
   onApprovePurchase?: (orderId: string) => void;
@@ -71,6 +71,8 @@ export default function AdminPanel({
   const [newUnitPrice, setNewUnitPrice] = useState<number>(20);
   const [newUnitPdfUrl, setNewUnitPdfUrl] = useState<string>('');
   const [newUnitPdfName, setNewUnitPdfName] = useState<string>('');
+  const [newUnitPdfFile, setNewUnitPdfFile] = useState<File | null>(null);
+  const [newUnitPreviewBlob, setNewUnitPreviewBlob] = useState<Blob | null>(null);
 
   // Edit Price States
   const [editingUnitId, setEditingUnitId] = useState<string | null>(null);
@@ -336,7 +338,40 @@ export default function AdminPanel({
 
     if (isNewUnit) {
       setIsUploadingNewUnitPdf(true);
-    } else if (unitId) {
+      try {
+        // 1. Read file to base64 so we can slice it client side
+        const base64Data = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = (event) => resolve(event.target?.result as string);
+          reader.onerror = (err) => reject(err);
+          reader.readAsDataURL(file);
+        });
+
+        // 2. Generate 4-page sliced preview PDF client-side
+        let previewBlob: Blob | null = null;
+        try {
+          const previewBase64 = await slicePdfClientSide(base64Data);
+          if (previewBase64) {
+            previewBlob = dataURLtoBlob(previewBase64);
+          }
+        } catch (sliceErr) {
+          console.error("Failed to slice PDF client-side:", sliceErr);
+        }
+
+        setNewUnitPdfFile(file);
+        setNewUnitPdfName(file.name);
+        setNewUnitPreviewBlob(previewBlob);
+        alert(`✅ PDF "${file.name}" selected and processed successfully!\nIt will be uploaded and saved to the database when you click "Secure Upload Note".`);
+      } catch (err: any) {
+        console.error("Failed to process PDF selection:", err);
+        alert(`❌ Failed to process PDF selection: ${err.message || err}`);
+      } finally {
+        setIsUploadingNewUnitPdf(false);
+      }
+      return;
+    }
+
+    if (unitId) {
       setUploadingUnitId(unitId);
     }
 
@@ -361,20 +396,18 @@ export default function AdminPanel({
       }
 
       // Calculated/final unit ID
-      const targetUnitId = isNewUnit
-        ? `${newUnitExamId.toLowerCase().replace(/_/g, '-')}-unit-${newUnitNum}`
-        : unitId!;
+      const targetUnitId = unitId!;
 
       // 3. Build multipart FormData for direct stream upload to Hostinger
       const formData = new FormData();
       formData.append('pdfFile', file);
       formData.append('unitId', targetUnitId);
-      formData.append('isNewUnit', isNewUnit ? 'true' : 'false');
+      formData.append('isNewUnit', 'false');
       if (previewBlob) {
         formData.append('pdfPreviewFile', previewBlob, `${targetUnitId}-preview.pdf`);
       }
 
-      // 4. Send request to the new PHP endpoint
+      // 4. Send request to the direct upload endpoint
       const res = await fetch('/api/notes/upload-pdf-file', {
         method: 'POST',
         body: formData
@@ -387,19 +420,13 @@ export default function AdminPanel({
 
       const data = await res.json();
       if (data.success) {
-        if (isNewUnit) {
-          setNewUnitPdfUrl(data.pdfUrl);
-          setNewUnitPdfName(file.name);
-          alert(`✅ PDF successfully uploaded to Hostinger server!\nServer Path: ${data.pdfUrl}`);
-        } else if (unitId) {
-          try {
-            await savePdf(unitId, base64Data);
-          } catch (dbErr) {
-            console.error("Failed to store PDF in IndexedDB:", dbErr);
-          }
-          onUpdateNotePdf(unitId, data.pdfUrl, file.name);
-          alert(`✅ PDF successfully attached and updated on Hostinger server!\nServer Path: ${data.pdfUrl}`);
+        try {
+          await savePdf(unitId!, base64Data);
+        } catch (dbErr) {
+          console.error("Failed to store PDF in IndexedDB:", dbErr);
         }
+        onUpdateNotePdf(unitId!, data.pdfUrl, file.name, data.notes);
+        alert(`✅ PDF successfully uploaded and attached to the existing unit!\nServer Path: ${data.pdfUrl}`);
       } else {
         throw new Error(data.error || 'Server returned unsuccessful status');
       }
@@ -407,14 +434,16 @@ export default function AdminPanel({
       console.error("Failed to upload PDF:", uploadErr);
       alert(`❌ Failed to upload PDF file: ${uploadErr.message || 'Unknown network error'}`);
     } finally {
-      setIsUploadingNewUnitPdf(false);
       setUploadingUnitId(null);
     }
   };
 
   const handleCreateUnit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newUnitName.trim() || !newUnitDesc.trim()) return;
+    if (!newUnitName.trim() || !newUnitDesc.trim()) {
+      alert("⚠️ Error: Please fill in all required fields.");
+      return;
+    }
 
     const targetId = `${newUnitExamId.toLowerCase().replace(/_/g, '-')}-unit-${newUnitNum}`;
     const alreadyExists = notesList.some(item => item.id === targetId);
@@ -423,52 +452,41 @@ export default function AdminPanel({
       return;
     }
 
-    let finalPdfUrl: string | undefined = undefined;
-    if (newUnitPdfUrl) {
-      finalPdfUrl = newUnitPdfUrl;
+    if (!newUnitPdfFile) {
+      alert("⚠️ Error: Please select and attach an original handwritten PDF file first.");
+      return;
     }
 
-    const mockNewUnit: NotesUnit = {
-      id: targetId,
-      examId: newUnitExamId,
-      unitNumber: newUnitNum,
-      name: `Unit ${newUnitNum}: ${newUnitName}`,
-      shortDescription: newUnitDesc,
-      price: newUnitPrice,
-      pdfUrl: finalPdfUrl,
-      pdfName: newUnitPdfName || undefined,
-      demoPages: [
-        {
-          pageNumber: 1,
-          title: `Unit ${newUnitNum}: ${newUnitName} (Uploaded)`,
-          paragraphs: [
-            '✍️ SYSTEM GENERATED DEMO NOTE:',
-            'This syllabus note has been compiled, parsed, and secure-signed by the Admin console.',
-            '👉 Standard PDF structures apply. High priority theoretical insights and practice answers unlocked.'
-          ]
-        }
-      ],
-      fullPages: [
-        {
-          pageNumber: 1,
-          title: `Unit ${newUnitNum}: ${newUnitName} (Full Syllabus)`,
-          paragraphs: [
-            '✍️ SYSTEM GENERATED CORE NOTES:',
-            'This content is fully unlocked. Access is provided permanently to your student portal.',
-            '• Review direct formulas and schematic mappings beneath.'
-          ]
-        }
-      ]
-    };
+    setIsUploadingNewUnitPdf(true);
 
-    onAddNewUnit(mockNewUnit);
-    
-    // reset form
-    setNewUnitName('');
-    setNewUnitDesc('');
-    setNewUnitPdfUrl('');
-    setNewUnitPdfName('');
-    setNewUnitNum(newUnitNum + 1);
+    try {
+      const formData = new FormData();
+      formData.append('examId', newUnitExamId);
+      formData.append('unitNumber', String(newUnitNum));
+      formData.append('name', `Unit ${newUnitNum}: ${newUnitName}`);
+      formData.append('shortDescription', newUnitDesc);
+      formData.append('price', String(newUnitPrice));
+      formData.append('pdfFile', newUnitPdfFile);
+      if (newUnitPreviewBlob) {
+        formData.append('pdfPreviewFile', newUnitPreviewBlob, `${targetId}-preview.pdf`);
+      }
+
+      await onAddNewUnit(formData);
+
+      // reset form
+      setNewUnitName('');
+      setNewUnitDesc('');
+      setNewUnitPdfFile(null);
+      setNewUnitPdfName('');
+      setNewUnitPreviewBlob(null);
+      setNewUnitNum((prev) => prev + 1);
+      alert('✅ Note package and original PDF uploaded & saved successfully to MySQL database!');
+    } catch (err: any) {
+      console.error('Failed to register unit:', err);
+      alert(`❌ Failed to register note package: ${err.message || err}`);
+    } finally {
+      setIsUploadingNewUnitPdf(false);
+    }
   };
 
   const handleSimulateReply = (messageId: string) => {
@@ -1101,7 +1119,7 @@ export default function AdminPanel({
                         </div>
                       ) : newUnitPdfName ? (
                         <div className="flex flex-col items-center space-y-0.5">
-                          <span className="text-emerald-400 font-extrabold text-xs bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-0.5 rounded-full">Uploaded ✅</span>
+                          <span className="text-emerald-400 font-extrabold text-xs bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-0.5 rounded-full">File Selected 📎</span>
                           <span className="text-[10px] text-slate-400 truncate max-w-[180px]" title={newUnitPdfName}>{newUnitPdfName}</span>
                         </div>
                       ) : (
@@ -1117,10 +1135,24 @@ export default function AdminPanel({
                 <button
                   id="btn-upload-unit-submit"
                   type="submit"
-                  className="w-full bg-brand-orange hover:bg-brand-orange-hover text-white py-2.5 rounded-xl font-bold flex items-center justify-center space-x-1 transition-all cursor-pointer text-sm"
+                  disabled={isUploadingNewUnitPdf}
+                  className={`w-full bg-brand-orange text-white py-2.5 rounded-xl font-bold flex items-center justify-center space-x-1 transition-all text-sm ${
+                    isUploadingNewUnitPdf 
+                      ? 'opacity-50 cursor-not-allowed bg-slate-700' 
+                      : 'hover:bg-brand-orange-hover cursor-pointer'
+                  }`}
                 >
-                  <Plus className="h-4 w-4" />
-                  <span>Secure Upload Note</span>
+                  {isUploadingNewUnitPdf ? (
+                    <>
+                      <span className="animate-spin mr-1">⚡</span>
+                      <span>Uploading to MySQL Database...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Plus className="h-4 w-4" />
+                      <span>Secure Upload Note</span>
+                    </>
+                  )}
                 </button>
               </form>
             </div>
@@ -1169,7 +1201,7 @@ export default function AdminPanel({
                           {unit.pdfUrl ? (
                             <div className="flex items-center space-x-2">
                               <span className="text-[9px] bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 px-1.5 py-0.5 rounded-md font-extrabold tracking-wide uppercase select-none">
-                                Uploaded ✅
+                                PDF Attached ✅
                               </span>
                               <span className="text-[10px] text-slate-400 font-medium flex items-center space-x-1 max-w-[140px] truncate" title={unit.pdfName}>
                                 <span>File:</span>
@@ -1177,8 +1209,8 @@ export default function AdminPanel({
                               </span>
                             </div>
                           ) : (
-                            <span className="text-[10px] text-slate-500 font-medium bg-slate-900 border border-slate-800 px-1.5 py-0.5 rounded-md">
-                              ⚠️ No PDF Attached (Demo reading active)
+                            <span className="text-[10px] text-red-500 font-bold bg-red-950/20 border border-red-500/30 px-1.5 py-0.5 rounded-md">
+                              No PDF Attached
                             </span>
                           )}
                           
@@ -1188,7 +1220,7 @@ export default function AdminPanel({
                             </span>
                           ) : (
                             <label className="text-[10px] text-orange-450 hover:text-orange-350 text-orange-400 underline font-extrabold cursor-pointer relative">
-                              <span>Attach/Update PDF</span>
+                              <span>{unit.pdfUrl ? 'Replace PDF' : 'Attach/Upload'}</span>
                               <input
                                 type="file"
                                 accept="application/pdf"
