@@ -18,14 +18,19 @@ async function startServer() {
   // Hostinger typically injects PORT, fallback to 3000 for AI Studio environment
   const PORT = process.env.PORT || 3000;
 
+  // Support both direct development execution and compiled production bundle running on Hostinger
+  const APP_ROOT = process.env.NODE_ENV === 'production'
+    ? path.resolve(__dirname, '..')
+    : process.cwd();
+
   // JSON and URL-encoded parsers for any API requests with larger payload limit for base64 PDFs
   app.use(express.json({ limit: '50mb' }));
   app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
   // Path for storing our persistent data
-  const DB_PATH = path.join(process.cwd(), 'notes_db.json');
-  const UPLOADS_DIR = path.join(process.cwd(), 'uploads');
-  const PURCHASES_DB_PATH = path.join(process.cwd(), 'purchases_db.json');
+  const DB_PATH = path.join(APP_ROOT, 'notes_db.json');
+  const UPLOADS_DIR = path.join(APP_ROOT, 'uploads');
+  const PURCHASES_DB_PATH = path.join(APP_ROOT, 'purchases_db.json');
 
   // Ensure uploads directory exists and is secured via .htaccess
   if (!fs.existsSync(UPLOADS_DIR)) {
@@ -298,7 +303,7 @@ async function startServer() {
     }
   }
 
-  const QUERIES_DB_PATH = path.join(process.cwd(), 'queries_db.json');
+  const QUERIES_DB_PATH = path.join(APP_ROOT, 'queries_db.json');
 
   function loadQueries(): any[] {
     if (fs.existsSync(QUERIES_DB_PATH)) {
@@ -330,7 +335,7 @@ async function startServer() {
     try {
       const zip = new AdmZip();
       
-      const imagesDir = path.join(process.cwd(), 'src', 'assets', 'images');
+      const imagesDir = path.join(APP_ROOT, 'src', 'assets', 'images');
       if (fs.existsSync(imagesDir)) {
         const files = fs.readdirSync(imagesDir);
         for (const file of files) {
@@ -423,7 +428,7 @@ async function startServer() {
   });
 
   // Admin configuration paths and helpers
-  const ADMIN_CONFIG_PATH = path.join(process.cwd(), 'admin_config.json');
+  const ADMIN_CONFIG_PATH = path.join(APP_ROOT, 'admin_config.json');
 
   function loadAdminConfig() {
     if (fs.existsSync(ADMIN_CONFIG_PATH)) {
@@ -832,7 +837,7 @@ async function startServer() {
       }
 
       const relativePath = note.pdfUrl.startsWith('/') ? note.pdfUrl.slice(1) : note.pdfUrl;
-      const filePath = path.join(process.cwd(), relativePath);
+      const filePath = path.join(APP_ROOT, relativePath);
 
       if (!fs.existsSync(filePath)) {
         return res.status(404).send('The requested original handwritten PDF file was not found on the server. Please contact Rajesh Ji at handscriptnotesak47@gmail.com.');
@@ -856,8 +861,8 @@ async function startServer() {
 
     try {
       // 1. Check if a pre-sliced preview file exists on disk
-      const previewFilePath = path.join(process.cwd(), 'uploads', 'pdfs', `${unitId}-preview.pdf`);
-      const previewFilePathOld = path.join(process.cwd(), 'uploads', `${unitId}-preview.pdf`);
+      const previewFilePath = path.join(APP_ROOT, 'uploads', 'pdfs', `${unitId}-preview.pdf`);
+      const previewFilePathOld = path.join(APP_ROOT, 'uploads', `${unitId}-preview.pdf`);
 
       if (fs.existsSync(previewFilePath)) {
         res.setHeader('Content-Type', 'application/pdf');
@@ -878,7 +883,7 @@ async function startServer() {
       }
 
       const relativePath = unit.pdfUrl.startsWith('/') ? unit.pdfUrl.slice(1) : unit.pdfUrl;
-      const filePath = path.join(process.cwd(), relativePath);
+      const filePath = path.join(APP_ROOT, relativePath);
 
       if (!fs.existsSync(filePath)) {
         return res.status(404).send('PDF file does not exist on server');
@@ -1035,7 +1040,7 @@ async function startServer() {
       // After successful save of database, delete the old original PDF file from server disk
       if (oldPdfUrl && oldPdfUrl !== publicUrl) {
         const oldRelative = oldPdfUrl.startsWith('/') ? oldPdfUrl.slice(1) : oldPdfUrl;
-        const oldPath = path.join(process.cwd(), oldRelative);
+        const oldPath = path.join(APP_ROOT, oldRelative);
         if (fs.existsSync(oldPath)) {
           try {
             fs.unlinkSync(oldPath);
@@ -1237,7 +1242,7 @@ async function startServer() {
       // Delete physical files from server disk associated with the unit
       if (targetUnit && targetUnit.pdfUrl) {
         const relativePath = targetUnit.pdfUrl.startsWith('/') ? targetUnit.pdfUrl.slice(1) : targetUnit.pdfUrl;
-        const filePath = path.join(process.cwd(), relativePath);
+        const filePath = path.join(APP_ROOT, relativePath);
         if (fs.existsSync(filePath)) {
           try {
             fs.unlinkSync(filePath);
@@ -1248,8 +1253,8 @@ async function startServer() {
         }
 
         // Delete associated preview files
-        const previewFilePath = path.join(process.cwd(), 'uploads', 'pdfs', `${unitId}-preview.pdf`);
-        const oldPreviewFilePath = path.join(process.cwd(), 'uploads', `${unitId}-preview.pdf`);
+        const previewFilePath = path.join(APP_ROOT, 'uploads', 'pdfs', `${unitId}-preview.pdf`);
+        const oldPreviewFilePath = path.join(APP_ROOT, 'uploads', `${unitId}-preview.pdf`);
         if (fs.existsSync(previewFilePath)) {
           try { fs.unlinkSync(previewFilePath); } catch (e) {}
         }
@@ -1313,7 +1318,7 @@ async function startServer() {
     app.use(vite.middlewares);
   } else {
     console.log('Running in PRODUCTION mode; serving pre-built static assets');
-    const distPath = path.join(process.cwd(), 'dist');
+    const distPath = path.join(APP_ROOT, 'dist');
     
     // Serve static files from the build directory
     app.use(express.static(distPath));
