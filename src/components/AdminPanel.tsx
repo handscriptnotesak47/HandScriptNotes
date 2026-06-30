@@ -1197,37 +1197,79 @@ export default function AdminPanel({
                         <span className="font-bold text-white truncate text-sm">{unit.name}</span>
                         
                         {/* Interactive Original PDF Status and Upload */}
-                        <div className="flex items-center space-x-2.5 mt-1.5 pt-1.5 border-t border-slate-900">
+                        <div className="mt-1.5 pt-1.5 border-t border-slate-900">
                           {unit.pdfUrl ? (
-                            <div className="flex items-center space-x-2">
-                              <span className="text-[9px] bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 px-1.5 py-0.5 rounded-md font-extrabold tracking-wide uppercase select-none">
-                                PDF Attached ✅
-                              </span>
-                              <span className="text-[10px] text-slate-400 font-medium flex items-center space-x-1 max-w-[140px] truncate" title={unit.pdfName}>
-                                <span>File:</span>
-                                <span className="truncate font-mono underline font-medium">{unit.pdfName || 'Attached.pdf'}</span>
-                              </span>
+                            <div className="flex flex-col space-y-1.5">
+                              <div className="flex items-center space-x-2">
+                                <span className="text-[10px] bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 px-1.5 py-0.5 rounded-md font-extrabold tracking-wide uppercase select-none">
+                                  ✅ PDF Attached
+                                </span>
+                                <span className="text-[10px] text-slate-300 font-bold flex items-center space-x-1 max-w-[180px] truncate" title={unit.pdfName}>
+                                  <span>File:</span>
+                                  <span className="truncate font-mono underline font-medium">{unit.pdfName || 'Attached.pdf'}</span>
+                                </span>
+                              </div>
+                              
+                              {/* View / Preview actions */}
+                              <div className="flex items-center space-x-3 text-[10px]">
+                                <a 
+                                  href={unit.pdfUrl} 
+                                  target="_blank" 
+                                  rel="noopener noreferrer" 
+                                  className="text-emerald-400 hover:text-emerald-300 font-extrabold underline flex items-center cursor-pointer"
+                                >
+                                  View PDF
+                                </a>
+                                <span className="text-slate-700">•</span>
+                                <a 
+                                  href={`/api/pdf-preview/${unit.id}`} 
+                                  target="_blank" 
+                                  rel="noopener noreferrer" 
+                                  className="text-amber-400 hover:text-amber-300 font-extrabold underline flex items-center cursor-pointer"
+                                >
+                                  Preview Demo
+                                </a>
+                                <span className="text-slate-700">•</span>
+                                {uploadingUnitId === unit.id ? (
+                                  <span className="text-amber-400 font-bold animate-pulse">
+                                    ⚡ Replacing...
+                                  </span>
+                                ) : (
+                                  <label className="text-orange-450 hover:text-orange-350 text-orange-400 underline font-extrabold cursor-pointer relative">
+                                    <span>Replace PDF</span>
+                                    <input
+                                      type="file"
+                                      accept="application/pdf"
+                                      onChange={(e) => handlePdfFileChange(e, false, unit.id)}
+                                      className="absolute inset-0 opacity-0 cursor-pointer w-full h-full z-10"
+                                    />
+                                  </label>
+                                )}
+                              </div>
                             </div>
                           ) : (
-                            <span className="text-[10px] text-red-500 font-bold bg-red-950/20 border border-red-500/30 px-1.5 py-0.5 rounded-md">
-                              No PDF Attached
-                            </span>
-                          )}
-                          
-                          {uploadingUnitId === unit.id ? (
-                            <span className="text-[10px] text-amber-450 text-amber-400 font-bold animate-pulse">
-                              ⚡ Uploading to server...
-                            </span>
-                          ) : (
-                            <label className="text-[10px] text-orange-450 hover:text-orange-350 text-orange-400 underline font-extrabold cursor-pointer relative">
-                              <span>{unit.pdfUrl ? 'Replace PDF' : 'Attach/Upload'}</span>
-                              <input
-                                type="file"
-                                accept="application/pdf"
-                                onChange={(e) => handlePdfFileChange(e, false, unit.id)}
-                                className="absolute inset-0 opacity-0 cursor-pointer w-full h-full z-10"
-                              />
-                            </label>
+                            <div className="flex flex-col space-y-1.5">
+                              <div className="flex items-center space-x-2">
+                                <span className="text-[10px] text-red-500 font-bold bg-red-950/20 border border-red-500/30 px-1.5 py-0.5 rounded-md">
+                                  ❌ No PDF Attached
+                                </span>
+                              </div>
+                              {uploadingUnitId === unit.id ? (
+                                <span className="text-[10px] text-amber-400 font-bold animate-pulse">
+                                  ⚡ Uploading...
+                                </span>
+                              ) : (
+                                <label className="text-[10px] text-orange-450 hover:text-orange-350 text-orange-400 underline font-extrabold cursor-pointer relative self-start">
+                                  <span>Attach/Upload</span>
+                                  <input
+                                    type="file"
+                                    accept="application/pdf"
+                                    onChange={(e) => handlePdfFileChange(e, false, unit.id)}
+                                    className="absolute inset-0 opacity-0 cursor-pointer w-full h-full z-10"
+                                  />
+                                </label>
+                              )}
+                            </div>
                           )}
                         </div>
                       </div>

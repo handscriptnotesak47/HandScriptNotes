@@ -60,6 +60,42 @@ async function startServer() {
     }
   }
 
+  // Automatic server-side PDF preview generation helper using pdf-lib
+  async function ensurePdfPreview(unitId: string, originalFilePath: string) {
+    const pdfsDir = path.join(UPLOADS_DIR, 'pdfs');
+    if (!fs.existsSync(pdfsDir)) {
+      fs.mkdirSync(pdfsDir, { recursive: true });
+    }
+    const previewFilePath = path.join(pdfsDir, `${unitId}-preview.pdf`);
+    const oldPreviewFilePath = path.join(UPLOADS_DIR, `${unitId}-preview.pdf`);
+
+    try {
+      if (!fs.existsSync(originalFilePath)) {
+        throw new Error("Original PDF file does not exist on server disk.");
+      }
+
+      const pdfBytes = fs.readFileSync(originalFilePath);
+      const pdfDoc = await PDFDocument.load(pdfBytes);
+      const subPdfDoc = await PDFDocument.create();
+      const totalPages = pdfDoc.getPageCount();
+      const pagesToCopy = Math.min(4, totalPages);
+      
+      const pageIndices = Array.from({ length: pagesToCopy }, (_, i) => i);
+      const copiedPages = await subPdfDoc.copyPages(pdfDoc, pageIndices);
+      for (const page of copiedPages) {
+        subPdfDoc.addPage(page);
+      }
+      
+      const pdfBytesOut = await subPdfDoc.save();
+      fs.writeFileSync(previewFilePath, Buffer.from(pdfBytesOut));
+      fs.writeFileSync(oldPreviewFilePath, Buffer.from(pdfBytesOut));
+      console.log(`[PREVIEW GENERATOR] Generated preview automatically for unit ${unitId}`);
+    } catch (err: any) {
+      console.error(`[PREVIEW GENERATOR] Failed to automatically generate preview for ${unitId}:`, err);
+      throw err;
+    }
+  }
+
   // Helper functions for loading and saving notes data with Hostinger MySQL support and local JSON fallback
   let mysqlPool: mysql.Pool | null = null;
   const DB_PREFIX = process.env.DB_PREFIX !== undefined ? process.env.DB_PREFIX : 'hsn_';
@@ -943,6 +979,11 @@ async function startServer() {
       return res.status(400).json({ error: 'No PDF file uploaded.' });
     }
 
+    let fullFilePath = '';
+    let previewFilePath = '';
+    let oldPreviewFilePath = '';
+    let hasSavedFiles = false;
+
     try {
       const pdfsDir = path.join(UPLOADS_DIR, 'pdfs');
       if (!fs.existsSync(pdfsDir)) {
@@ -953,7 +994,7 @@ async function startServer() {
       const originalName = path.basename(pdfFile.originalname);
       const sanitizedName = originalName.replace(/[^a-zA-Z0-9_\-\.]/g, '_');
       const fullFileName = `${unitId}-${Math.floor(Date.now() / 1000)}-${sanitizedName}`;
-      const fullFilePath = path.join(pdfsDir, fullFileName);
+      fullFilePath = path.join(pdfsDir, fullFileName);
 
       fs.writeFileSync(fullFilePath, pdfFile.buffer);
 
@@ -964,26 +1005,45 @@ async function startServer() {
 
       const publicUrl = `/uploads/pdfs/${fullFileName}`;
 
+      previewFilePath = path.join(pdfsDir, `${unitId}-preview.pdf`);
+      oldPreviewFilePath = path.join(UPLOADS_DIR, `${unitId}-preview.pdf`);
+
       // Process preview file if provided
       const pdfPreviewFile = files?.pdfPreviewFile?.[0];
       if (pdfPreviewFile) {
-        const previewFileName = `${unitId}-preview.pdf`;
-        const previewFilePath = path.join(pdfsDir, previewFileName);
-        const oldPreviewFilePath = path.join(UPLOADS_DIR, previewFileName);
-
         fs.writeFileSync(previewFilePath, pdfPreviewFile.buffer);
-        if (fs.existsSync(previewFilePath)) {
-          fs.copyFileSync(previewFilePath, oldPreviewFilePath);
-        }
+        fs.writeFileSync(oldPreviewFilePath, pdfPreviewFile.buffer);
+      } else {
+        // Automatic server-side fallback generation of the first 4 pages
+        await ensurePdfPreview(unitId, fullFilePath);
       }
+
+      hasSavedFiles = true;
 
       // Only update database if it's NOT a new unit (existing units get synced immediately)
       let notes = await loadNotes();
+      const existingUnit = notes.find(u => u.id === unitId);
+      const oldPdfUrl = existingUnit?.pdfUrl;
+
       if (!isNewUnit) {
         notes = notes.map(unit => 
           unit.id === unitId ? { ...unit, pdfUrl: publicUrl, pdfName: originalName } : unit
         );
         await saveNotes(notes);
+      }
+
+      // After successful save of database, delete the old original PDF file from server disk
+      if (oldPdfUrl && oldPdfUrl !== publicUrl) {
+        const oldRelative = oldPdfUrl.startsWith('/') ? oldPdfUrl.slice(1) : oldPdfUrl;
+        const oldPath = path.join(process.cwd(), oldRelative);
+        if (fs.existsSync(oldPath)) {
+          try {
+            fs.unlinkSync(oldPath);
+            console.log(`[REPLACE] Successfully deleted old original PDF file: ${oldPath}`);
+          } catch (delErr) {
+            console.error(`[REPLACE] Failed to delete old original PDF file: ${oldPath}`, delErr);
+          }
+        }
       }
 
       res.json({
@@ -994,6 +1054,18 @@ async function startServer() {
       });
     } catch (err: any) {
       console.error("PDF Upload error:", err);
+      // Clean up newly uploaded files on failure
+      if (fullFilePath && fs.existsSync(fullFilePath)) {
+        try { fs.unlinkSync(fullFilePath); } catch (e) {}
+      }
+      if (hasSavedFiles) {
+        if (previewFilePath && fs.existsSync(previewFilePath)) {
+          try { fs.unlinkSync(previewFilePath); } catch (e) {}
+        }
+        if (oldPreviewFilePath && fs.existsSync(oldPreviewFilePath)) {
+          try { fs.unlinkSync(oldPreviewFilePath); } catch (e) {}
+        }
+      }
       res.status(500).json({ error: `Failed to process PDF upload: ${err.message}` });
     }
   });
@@ -1004,6 +1076,9 @@ async function startServer() {
     { name: 'pdfPreviewFile', maxCount: 1 }
   ]), async (req: any, res) => {
     let savedFilePath = '';
+    let previewFilePath = '';
+    let oldPreviewFilePath = '';
+    let hasSavedPreview = false;
 
     try {
       // 1. Check if request is multipart or JSON
@@ -1064,18 +1139,20 @@ async function startServer() {
         pdfUrl = `/uploads/pdfs/${fullFileName}`;
         pdfName = originalName;
 
+        previewFilePath = path.join(pdfsDir, `${unitId}-preview.pdf`);
+        oldPreviewFilePath = path.join(UPLOADS_DIR, `${unitId}-preview.pdf`);
+
         // Process preview file if provided
         const pdfPreviewFile = files?.pdfPreviewFile?.[0];
         if (pdfPreviewFile) {
-          const previewFileName = `${unitId}-preview.pdf`;
-          const previewFilePath = path.join(pdfsDir, previewFileName);
-          const oldPreviewFilePath = path.join(UPLOADS_DIR, previewFileName);
-
           fs.writeFileSync(previewFilePath, pdfPreviewFile.buffer);
-          if (fs.existsSync(previewFilePath)) {
-            fs.copyFileSync(previewFilePath, oldPreviewFilePath);
-          }
+          fs.writeFileSync(oldPreviewFilePath, pdfPreviewFile.buffer);
+        } else {
+          // Automatic server-side fallback generation of the first 4 pages
+          await ensurePdfPreview(unitId, fullFilePath);
         }
+
+        hasSavedPreview = true;
 
         const newUnit: NotesUnit = {
           id: unitId,
@@ -1129,12 +1206,21 @@ async function startServer() {
       }
     } catch (err: any) {
       console.error('Error adding unit:', err);
-      // Clean up newly uploaded file on database failure
+      // Clean up newly uploaded original file on database failure
       if (savedFilePath && fs.existsSync(savedFilePath)) {
         try {
           fs.unlinkSync(savedFilePath);
         } catch (cleanupErr) {
           console.error('Failed to delete uploaded file after DB failure:', cleanupErr);
+        }
+      }
+      // Clean up preview files on database failure
+      if (hasSavedPreview) {
+        if (previewFilePath && fs.existsSync(previewFilePath)) {
+          try { fs.unlinkSync(previewFilePath); } catch (e) {}
+        }
+        if (oldPreviewFilePath && fs.existsSync(oldPreviewFilePath)) {
+          try { fs.unlinkSync(oldPreviewFilePath); } catch (e) {}
         }
       }
       res.status(500).json({ error: `Failed to add unit: ${err.message}` });
@@ -1146,12 +1232,38 @@ async function startServer() {
     const { unitId } = req.body;
     try {
       const currentNotes = await loadNotes();
+      const targetUnit = currentNotes.find(unit => unit.id === unitId);
+      
+      // Delete physical files from server disk associated with the unit
+      if (targetUnit && targetUnit.pdfUrl) {
+        const relativePath = targetUnit.pdfUrl.startsWith('/') ? targetUnit.pdfUrl.slice(1) : targetUnit.pdfUrl;
+        const filePath = path.join(process.cwd(), relativePath);
+        if (fs.existsSync(filePath)) {
+          try {
+            fs.unlinkSync(filePath);
+            console.log(`[DELETE] Successfully deleted physical PDF file: ${filePath}`);
+          } catch (e) {
+            console.error(`[DELETE] Failed to delete physical PDF file: ${filePath}`, e);
+          }
+        }
+
+        // Delete associated preview files
+        const previewFilePath = path.join(process.cwd(), 'uploads', 'pdfs', `${unitId}-preview.pdf`);
+        const oldPreviewFilePath = path.join(process.cwd(), 'uploads', `${unitId}-preview.pdf`);
+        if (fs.existsSync(previewFilePath)) {
+          try { fs.unlinkSync(previewFilePath); } catch (e) {}
+        }
+        if (fs.existsSync(oldPreviewFilePath)) {
+          try { fs.unlinkSync(oldPreviewFilePath); } catch (e) {}
+        }
+      }
+
       const updated = currentNotes.filter(unit => unit.id !== unitId);
       await saveNotes(updated);
-      res.json({ success: true, notes: updated });
+      res.json({ success: true, notes: await loadNotes() });
     } catch (err: any) {
       console.error('Error removing unit:', err);
-      res.status(500).json({ error: 'Failed to remove unit' });
+      res.status(500).json({ error: `Failed to remove unit: ${err.message}` });
     }
   });
 
