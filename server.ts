@@ -7,6 +7,10 @@ import { NOTES_LIST } from './src/data';
 import { NotesUnit } from './src/types';
 import AdmZip from 'adm-zip';
 import { PDFDocument } from 'pdf-lib';
+import dotenv from 'dotenv';
+import mysql from 'mysql2/promise';
+
+dotenv.config();
 
 async function startServer() {
   const app = express();
@@ -52,8 +56,103 @@ async function startServer() {
     }
   }
 
-  // Helper functions for loading and saving notes data
-  function loadNotes(): NotesUnit[] {
+  // Helper functions for loading and saving notes data with Hostinger MySQL support and local JSON fallback
+  let mysqlPool: mysql.Pool | null = null;
+  const DB_PREFIX = process.env.DB_PREFIX !== undefined ? process.env.DB_PREFIX : 'hsn_';
+  const NOTES_TABLE = `${DB_PREFIX}notes`;
+
+  function getMySQLPool(): mysql.Pool {
+    if (!mysqlPool) {
+      const host = process.env.DB_HOST || 'localhost';
+      const user = process.env.DB_USER;
+      const password = process.env.DB_PASS || process.env.DB_PASSWORD;
+      const database = process.env.DB_NAME;
+      const port = process.env.DB_PORT ? Number(process.env.DB_PORT) : 3306;
+
+      if (!user || !database) {
+        throw new Error('MySQL credentials (DB_USER, DB_NAME) are required in environment variables for live connection.');
+      }
+
+      mysqlPool = mysql.createPool({
+        host,
+        user,
+        password,
+        database,
+        port,
+        waitForConnections: true,
+        connectionLimit: 10,
+        queueLimit: 0
+      });
+    }
+    return mysqlPool;
+  }
+
+  let dbInitialized = false;
+  async function initDatabase() {
+    if (dbInitialized) return;
+    try {
+      const p = getMySQLPool();
+      
+      // Create table if not exists
+      await p.query(`
+        CREATE TABLE IF NOT EXISTS \`${NOTES_TABLE}\` (
+          \`id\` VARCHAR(100) PRIMARY KEY,
+          \`examId\` VARCHAR(50) NOT NULL,
+          \`unitNumber\` INT NOT NULL,
+          \`name\` VARCHAR(255) NOT NULL,
+          \`shortDescription\` TEXT NOT NULL,
+          \`price\` INT NOT NULL,
+          \`demoPages\` LONGTEXT,
+          \`fullPages\` LONGTEXT,
+          \`pdfUrl\` VARCHAR(255),
+          \`pdfName\` VARCHAR(255)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+      `);
+
+      // Check if table is empty to auto-seed
+      const [rows]: any = await p.query(`SELECT COUNT(*) as count FROM \`${NOTES_TABLE}\``);
+      const count = rows[0]?.count || 0;
+      
+      if (count === 0) {
+        console.log(`Seeding Hostinger MySQL table '${NOTES_TABLE}' from notes_db.json / NOTES_LIST...`);
+        let initialNotes: NotesUnit[] = NOTES_LIST;
+        if (fs.existsSync(DB_PATH)) {
+          try {
+            initialNotes = JSON.parse(fs.readFileSync(DB_PATH, 'utf8'));
+          } catch (e) {
+            console.error('Failed to read notes_db.json for seeding:', e);
+          }
+        }
+        
+        for (const note of initialNotes) {
+          await p.query(
+            `INSERT INTO \`${NOTES_TABLE}\` 
+             (\`id\`, \`examId\`, \`unitNumber\`, \`name\`, \`shortDescription\`, \`price\`, \`demoPages\`, \`fullPages\`, \`pdfUrl\`, \`pdfName\`) 
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [
+              note.id,
+              note.examId,
+              note.unitNumber,
+              note.name,
+              note.shortDescription,
+              note.price,
+              JSON.stringify(note.demoPages || []),
+              JSON.stringify(note.fullPages || []),
+              note.pdfUrl || null,
+              note.pdfName || null
+            ]
+          );
+        }
+        console.log(`Successfully seeded ${initialNotes.length} units into MySQL table '${NOTES_TABLE}'.`);
+      }
+      dbInitialized = true;
+    } catch (err) {
+      console.error('MySQL initDatabase error:', err);
+      throw err;
+    }
+  }
+
+  function loadNotesFromFile(): NotesUnit[] {
     if (fs.existsSync(DB_PATH)) {
       try {
         const data = fs.readFileSync(DB_PATH, 'utf8');
@@ -65,11 +164,96 @@ async function startServer() {
     return NOTES_LIST;
   }
 
-  function saveNotes(notes: NotesUnit[]) {
+  async function loadNotes(): Promise<NotesUnit[]> {
+    const hasCredentials = process.env.DB_USER && process.env.DB_NAME;
+    if (!hasCredentials) {
+      return loadNotesFromFile();
+    }
+
+    try {
+      await initDatabase();
+      const p = getMySQLPool();
+      const [rows]: any = await p.query(`SELECT * FROM \`${NOTES_TABLE}\` ORDER BY examId ASC, unitNumber ASC`);
+      
+      return rows.map((row: any) => ({
+        id: row.id,
+        examId: row.examId,
+        unitNumber: Number(row.unitNumber),
+        name: row.name,
+        shortDescription: row.shortDescription,
+        price: Number(row.price),
+        demoPages: row.demoPages ? JSON.parse(row.demoPages) : [],
+        fullPages: row.fullPages ? JSON.parse(row.fullPages) : [],
+        pdfUrl: row.pdfUrl || undefined,
+        pdfName: row.pdfName || undefined
+      }));
+    } catch (err) {
+      console.error('MySQL loadNotes failed, falling back to local file:', err);
+      return loadNotesFromFile();
+    }
+  }
+
+  async function saveNotes(notes: NotesUnit[]): Promise<void> {
+    // Dual-write: Always save locally to notes_db.json as backup/development compatibility
     try {
       fs.writeFileSync(DB_PATH, JSON.stringify(notes, null, 2), 'utf8');
     } catch (e) {
-      console.error('Failed to write to notes_db.json:', e);
+      console.error('Failed to write backup to notes_db.json:', e);
+    }
+
+    const hasCredentials = process.env.DB_USER && process.env.DB_NAME;
+    if (!hasCredentials) {
+      return;
+    }
+
+    try {
+      await initDatabase();
+      const p = getMySQLPool();
+
+      // Upsert notes
+      for (const note of notes) {
+        await p.query(
+          `INSERT INTO \`${NOTES_TABLE}\` 
+           (\`id\`, \`examId\`, \`unitNumber\`, \`name\`, \`shortDescription\`, \`price\`, \`demoPages\`, \`fullPages\`, \`pdfUrl\`, \`pdfName\`) 
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) 
+           ON DUPLICATE KEY UPDATE 
+           \`examId\` = VALUES(\`examId\`), 
+           \`unitNumber\` = VALUES(\`unitNumber\`), 
+           \`name\` = VALUES(\`name\`), 
+           \`shortDescription\` = VALUES(\`shortDescription\`), 
+           \`price\` = VALUES(\`price\`), 
+           \`demoPages\` = VALUES(\`demoPages\`), 
+           \`fullPages\` = VALUES(\`fullPages\`), 
+           \`pdfUrl\` = VALUES(\`pdfUrl\`), 
+           \`pdfName\` = VALUES(\`pdfName\`)`,
+          [
+            note.id,
+            note.examId,
+            note.unitNumber,
+            note.name,
+            note.shortDescription,
+            note.price,
+            JSON.stringify(note.demoPages || []),
+            JSON.stringify(note.fullPages || []),
+            note.pdfUrl || null,
+            note.pdfName || null
+          ]
+        );
+      }
+
+      // Cleanup deleted notes
+      if (notes.length > 0) {
+        const activeIds = notes.map(n => n.id);
+        const placeholders = activeIds.map(() => '?').join(',');
+        await p.query(
+          `DELETE FROM \`${NOTES_TABLE}\` WHERE \`id\` NOT IN (${placeholders})`,
+          activeIds
+        );
+      } else {
+        await p.query(`DELETE FROM \`${NOTES_TABLE}\``);
+      }
+    } catch (err) {
+      console.error('MySQL saveNotes failed:', err);
     }
   }
 
@@ -473,8 +657,13 @@ async function startServer() {
   });
 
   // Get notes list
-  app.get('/api/notes', (req, res) => {
-    res.json(loadNotes());
+  app.get('/api/notes', async (req, res) => {
+    try {
+      const notes = await loadNotes();
+      res.json(notes);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
   });
 
   // GET /api/purchases - Fetch all purchases from server DB
@@ -571,7 +760,7 @@ async function startServer() {
   });
 
   // GET /api/pdf-download/:unitId - Streams the secure full PDF directly after validating the temporary token
-  app.get('/api/pdf-download/:unitId', (req, res) => {
+  app.get('/api/pdf-download/:unitId', async (req, res) => {
     try {
       const { unitId } = req.params;
       const { orderId, expires, token } = req.query;
@@ -595,7 +784,7 @@ async function startServer() {
       }
 
       // Load notes list to fetch actual file path
-      const notes = loadNotes();
+      const notes = await loadNotes();
       const note = notes.find((n: any) => n.id === unitId);
       if (!note || !note.pdfUrl) {
         return res.status(404).send('No original physical PDF is associated with this unit block yet.');
@@ -623,7 +812,7 @@ async function startServer() {
   // GET /api/pdf-preview/:unitId - Dynamically extracts starting 4 pages of any uploaded PDF securely
   app.get('/api/pdf-preview/:unitId', async (req, res) => {
     const { unitId } = req.params;
-    const currentNotes = loadNotes();
+    const currentNotes = await loadNotes();
     const unit = currentNotes.find(u => u.id === unitId);
     
     if (!unit || !unit.pdfUrl) {
@@ -666,18 +855,23 @@ async function startServer() {
   });
 
   // Update notes price
-  app.post('/api/notes/update-price', (req, res) => {
+  app.post('/api/notes/update-price', async (req, res) => {
     const { unitId, price } = req.body;
-    const currentNotes = loadNotes();
-    const updated = currentNotes.map(unit => 
-      unit.id === unitId ? { ...unit, price: Number(price) } : unit
-    );
-    saveNotes(updated);
-    res.json({ success: true, notes: updated });
+    try {
+      const currentNotes = await loadNotes();
+      const updated = currentNotes.map(unit => 
+        unit.id === unitId ? { ...unit, price: Number(price) } : unit
+      );
+      await saveNotes(updated);
+      res.json({ success: true, notes: updated });
+    } catch (err: any) {
+      console.error('Error updating price:', err);
+      res.status(500).json({ error: 'Failed to update price' });
+    }
   });
 
   // Save/Upload note PDF
-  app.post('/api/notes/update-pdf', (req, res) => {
+  app.post('/api/notes/update-pdf', async (req, res) => {
     const { unitId, pdfName, pdfData } = req.body;
     if (!unitId || !pdfData) {
       return res.status(400).json({ error: 'Missing unitId or pdfData' });
@@ -696,11 +890,11 @@ async function startServer() {
 
       const publicUrl = `/uploads/${safeFileName}`;
 
-      const currentNotes = loadNotes();
+      const currentNotes = await loadNotes();
       const updated = currentNotes.map(unit => 
         unit.id === unitId ? { ...unit, pdfUrl: publicUrl, pdfName: pdfName || 'Uploaded.pdf' } : unit
       );
-      saveNotes(updated);
+      await saveNotes(updated);
 
       res.json({ success: true, pdfUrl: publicUrl, pdfName: pdfName || 'Uploaded.pdf', notes: updated });
     } catch (err: any) {
@@ -710,21 +904,31 @@ async function startServer() {
   });
 
   // Add new unit
-  app.post('/api/notes/add-unit', (req, res) => {
+  app.post('/api/notes/add-unit', async (req, res) => {
     const { unit } = req.body;
-    const currentNotes = loadNotes();
-    const updated = [...currentNotes, unit];
-    saveNotes(updated);
-    res.json({ success: true, notes: updated });
+    try {
+      const currentNotes = await loadNotes();
+      const updated = [...currentNotes, unit];
+      await saveNotes(updated);
+      res.json({ success: true, notes: updated });
+    } catch (err: any) {
+      console.error('Error adding unit:', err);
+      res.status(500).json({ error: 'Failed to add unit' });
+    }
   });
 
   // Remove unit
-  app.post('/api/notes/remove-unit', (req, res) => {
+  app.post('/api/notes/remove-unit', async (req, res) => {
     const { unitId } = req.body;
-    const currentNotes = loadNotes();
-    const updated = currentNotes.filter(unit => unit.id !== unitId);
-    saveNotes(updated);
-    res.json({ success: true, notes: updated });
+    try {
+      const currentNotes = await loadNotes();
+      const updated = currentNotes.filter(unit => unit.id !== unitId);
+      await saveNotes(updated);
+      res.json({ success: true, notes: updated });
+    } catch (err: any) {
+      console.error('Error removing unit:', err);
+      res.status(500).json({ error: 'Failed to remove unit' });
+    }
   });
 
   // GET /api/queries - Load all persistent queries
