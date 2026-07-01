@@ -32,6 +32,16 @@ async function startServer() {
   const UPLOADS_DIR = path.join(APP_ROOT, 'uploads');
   const PURCHASES_DB_PATH = path.join(APP_ROOT, 'purchases_db.json');
 
+  // Helper to resolve physical file path from a public URL safely
+  function getPhysicalPath(pdfUrl: string): string {
+    let cleanUrl = pdfUrl;
+    if (cleanUrl.startsWith('/api/uploads/')) {
+      cleanUrl = cleanUrl.replace('/api/uploads/', '/uploads/');
+    }
+    const relativePath = cleanUrl.startsWith('/') ? cleanUrl.slice(1) : cleanUrl;
+    return path.join(APP_ROOT, relativePath);
+  }
+
   // Ensure uploads directory exists and is secured via .htaccess
   if (!fs.existsSync(UPLOADS_DIR)) {
     fs.mkdirSync(UPLOADS_DIR, { recursive: true });
@@ -214,9 +224,20 @@ async function startServer() {
   }
 
   async function loadNotes(): Promise<NotesUnit[]> {
+    const mapUrl = (url: string | undefined | null) => {
+      if (!url) return undefined;
+      if (url.startsWith('/uploads/')) {
+        return url.replace('/uploads/', '/api/uploads/');
+      }
+      return url;
+    };
+
     const hasCredentials = process.env.DB_USER && process.env.DB_NAME;
     if (!hasCredentials) {
-      return loadNotesFromFile();
+      return loadNotesFromFile().map(unit => ({
+        ...unit,
+        pdfUrl: mapUrl(unit.pdfUrl)
+      }));
     }
 
     try {
@@ -233,12 +254,15 @@ async function startServer() {
         price: Number(row.price),
         demoPages: row.demoPages ? JSON.parse(row.demoPages) : [],
         fullPages: row.fullPages ? JSON.parse(row.fullPages) : [],
-        pdfUrl: row.pdfUrl || undefined,
+        pdfUrl: mapUrl(row.pdfUrl),
         pdfName: row.pdfName || undefined
       }));
     } catch (err) {
       console.error('MySQL loadNotes failed, falling back to local file:', err);
-      return loadNotesFromFile();
+      return loadNotesFromFile().map(unit => ({
+        ...unit,
+        pdfUrl: mapUrl(unit.pdfUrl)
+      }));
     }
   }
 
@@ -840,8 +864,7 @@ async function startServer() {
         return res.status(404).send('No original physical PDF is associated with this unit block yet.');
       }
 
-      const relativePath = note.pdfUrl.startsWith('/') ? note.pdfUrl.slice(1) : note.pdfUrl;
-      const filePath = path.join(APP_ROOT, relativePath);
+      const filePath = getPhysicalPath(note.pdfUrl);
 
       if (!fs.existsSync(filePath)) {
         return res.status(404).send('The requested original handwritten PDF file was not found on the server. Please contact Rajesh Ji at handscriptnotesak47@gmail.com.');
@@ -886,8 +909,7 @@ async function startServer() {
         return res.status(404).send('PDF not found for this unit');
       }
 
-      const relativePath = unit.pdfUrl.startsWith('/') ? unit.pdfUrl.slice(1) : unit.pdfUrl;
-      const filePath = path.join(APP_ROOT, relativePath);
+      const filePath = getPhysicalPath(unit.pdfUrl);
 
       if (!fs.existsSync(filePath)) {
         return res.status(404).send('PDF file does not exist on server');
@@ -954,7 +976,7 @@ async function startServer() {
       const filePath = path.join(UPLOADS_DIR, safeFileName);
       fs.writeFileSync(filePath, buffer);
 
-      const publicUrl = `/uploads/${safeFileName}`;
+      const publicUrl = `/api/uploads/${safeFileName}`;
 
       const currentNotes = await loadNotes();
       const updated = currentNotes.map(unit => 
@@ -1012,7 +1034,7 @@ async function startServer() {
         throw new Error("File verification failed. The file was not saved on server disk.");
       }
 
-      const publicUrl = `/uploads/pdfs/${fullFileName}`;
+      const publicUrl = `/api/uploads/pdfs/${fullFileName}`;
 
       previewFilePath = path.join(pdfsDir, `${unitId}-preview.pdf`);
       oldPreviewFilePath = path.join(UPLOADS_DIR, `${unitId}-preview.pdf`);
@@ -1043,8 +1065,7 @@ async function startServer() {
 
       // After successful save of database, delete the old original PDF file from server disk
       if (oldPdfUrl && oldPdfUrl !== publicUrl) {
-        const oldRelative = oldPdfUrl.startsWith('/') ? oldPdfUrl.slice(1) : oldPdfUrl;
-        const oldPath = path.join(APP_ROOT, oldRelative);
+        const oldPath = getPhysicalPath(oldPdfUrl);
         if (fs.existsSync(oldPath)) {
           try {
             fs.unlinkSync(oldPath);
@@ -1145,7 +1166,7 @@ async function startServer() {
           throw new Error("File verification failed. The file was not saved on server disk.");
         }
 
-        pdfUrl = `/uploads/pdfs/${fullFileName}`;
+        pdfUrl = `/api/uploads/pdfs/${fullFileName}`;
         pdfName = originalName;
 
         previewFilePath = path.join(pdfsDir, `${unitId}-preview.pdf`);
@@ -1245,8 +1266,7 @@ async function startServer() {
       
       // Delete physical files from server disk associated with the unit
       if (targetUnit && targetUnit.pdfUrl) {
-        const relativePath = targetUnit.pdfUrl.startsWith('/') ? targetUnit.pdfUrl.slice(1) : targetUnit.pdfUrl;
-        const filePath = path.join(APP_ROOT, relativePath);
+        const filePath = getPhysicalPath(targetUnit.pdfUrl);
         if (fs.existsSync(filePath)) {
           try {
             fs.unlinkSync(filePath);
@@ -1308,8 +1328,9 @@ async function startServer() {
     res.json({ success: true, queries: updated });
   });
 
-  // Serve uploads directory publicly
+  // Serve uploads directory publicly via both /uploads and /api/uploads to bypass Apache directory interception on Hostinger
   app.use('/uploads', express.static(UPLOADS_DIR));
+  app.use('/api/uploads', express.static(UPLOADS_DIR));
 
   // Serve static files and handle routing depending on environment
   if (process.env.NODE_ENV !== 'production') {
