@@ -11,7 +11,10 @@
   RewriteCond %{HTTPS} off
   RewriteRule ^(.*)$ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
 
-  # 2. Route API calls to public/api/index.php
+  # 2. Route uploads directly to PHP streaming script (safely bypassed and served outside web root)
+  RewriteRule ^uploads/(.*)$ api/index.php?route=uploads/$1 [QSA,L]
+
+  # 3. Route API calls to public/api/index.php
   # Ensures fetch('/api/notes') -> api/index.php?route=notes
   RewriteCond %{REQUEST_FILENAME} !-f
   RewriteCond %{REQUEST_FILENAME} !-d

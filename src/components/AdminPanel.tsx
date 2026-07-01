@@ -714,7 +714,7 @@ export default function AdminPanel({
           </p>
           <div className="mt-3">
             <a 
-              href="/api/download-images" 
+              href={`${window.location.origin}/api/download-images`} 
               download="website_images.zip"
               className="inline-flex items-center space-x-2 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 active:scale-95 text-xs text-slate-200 hover:text-white font-bold rounded-xl transition-all shadow-sm border border-slate-700/80 cursor-pointer"
             >
@@ -1213,7 +1213,7 @@ export default function AdminPanel({
                               {/* View / Preview actions */}
                               <div className="flex items-center space-x-3 text-[10px]">
                                 <a 
-                                  href={unit.pdfUrl} 
+                                  href={unit.pdfUrl ? (unit.pdfUrl.startsWith('http') ? unit.pdfUrl : `${window.location.origin}${unit.pdfUrl.startsWith('/') ? '' : '/'}${unit.pdfUrl}`) : ''} 
                                   target="_blank" 
                                   rel="noopener noreferrer" 
                                   className="text-emerald-400 hover:text-emerald-300 font-extrabold underline flex items-center cursor-pointer"
@@ -1222,7 +1222,7 @@ export default function AdminPanel({
                                 </a>
                                 <span className="text-slate-700">•</span>
                                 <a 
-                                  href={`/api/pdf-preview/${unit.id}`} 
+                                  href={`${window.location.origin}/api/pdf-preview/${unit.id}`} 
                                   target="_blank" 
                                   rel="noopener noreferrer" 
                                   className="text-amber-400 hover:text-amber-300 font-extrabold underline flex items-center cursor-pointer"

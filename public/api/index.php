@@ -28,7 +28,9 @@ $route = $_GET['route'] ?? '';
 // Route static file previews and secure downloads as PDF streams (cannot use application/json content-type)
 $isPdfPreview = preg_match('/^pdf-preview\/(.+)$/', $route, $matches);
 $isPdfDownload = preg_match('/^pdf-download\/(.+)$/', $route, $matches);
-if (!$isPdfPreview && !$isPdfDownload) {
+$isUploads = preg_match('/^uploads\/(.+)$/', $route, $matchesUploads);
+
+if (!$isPdfPreview && !$isPdfDownload && !$isUploads) {
     header("Content-Type: application/json; charset=UTF-8");
 }
 
@@ -848,6 +850,38 @@ if ($route === 'verify-payment' && $_SERVER['REQUEST_METHOD'] === 'POST') {
         echo json_encode(['error' => 'Invalid payment signature. Verification failed.']);
     }
     exit;
+}
+
+// Serve uploaded files securely from the physical uploads directory
+if ($isUploads) {
+    $filePathRelative = $matchesUploads[1];
+    $rootDir = dirname(dirname(__DIR__));
+    $filePath = $rootDir . '/uploads/' . $filePathRelative;
+    
+    // Fallback: check inside public/uploads just in case
+    if (!file_exists($filePath) || !is_file($filePath)) {
+        $filePath = $rootDir . '/public/uploads/' . $filePathRelative;
+    }
+
+    if (file_exists($filePath) && is_file($filePath)) {
+        $ext = strtolower(pathinfo($filePath, PATHINFO_EXTENSION));
+        $contentType = 'application/octet-stream';
+        if ($ext === 'pdf') {
+            $contentType = 'application/pdf';
+        } else if (in_array($ext, ['png', 'jpg', 'jpeg', 'gif', 'svg'])) {
+            $contentType = 'image/' . ($ext === 'jpg' ? 'jpeg' : $ext);
+        }
+        
+        header("Content-Type: " . $contentType);
+        header("Content-Disposition: inline; filename=\"" . basename($filePath) . "\"");
+        header("Content-Length: " . filesize($filePath));
+        readfile($filePath);
+        exit;
+    } else {
+        http_response_code(404);
+        echo "Uploaded file not found: " . htmlspecialchars($filePathRelative);
+        exit;
+    }
 }
 
 // 15. GET /api/pdf-preview/:unitId (Serves the secure 4-page sliced PDF directly from Hostinger disk)

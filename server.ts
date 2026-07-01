@@ -47,9 +47,7 @@ async function startServer() {
     fs.mkdirSync(UPLOADS_DIR, { recursive: true });
   }
   const htaccessPath = path.join(UPLOADS_DIR, '.htaccess');
-  if (!fs.existsSync(htaccessPath)) {
-    fs.writeFileSync(htaccessPath, 'Deny from all\n', 'utf8');
-  }
+  fs.writeFileSync(htaccessPath, 'Options -Indexes\n', 'utf8');
 
   // Multer middleware for binary multipart uploads
   const upload = multer({ storage: multer.memoryStorage() });
