@@ -122,29 +122,29 @@ export default function DocReader({ unit, isUnlocked, onBuy, onClose, purchases,
             setPdfError(null);
           }
         } else {
-          // Fetch as blob to guarantee physical existence on Hostinger disk and handle missing states beautifully
+          // Fetch check to guarantee physical existence on Hostinger disk and handle missing states beautifully
           const response = await fetch(actualPdfUrl);
           if (!response.ok) {
             const errorText = await response.text();
             throw new Error(errorText || `Physical PDF missing on server disk (HTTP ${response.status})`);
           }
-          const blob = await response.blob();
           
-          if (blob.type !== 'application/pdf') {
-            const errorText = await blob.text();
-            throw new Error(errorText || 'Server returned an invalid document file.');
+          // Verify that the response is actually a PDF (not an HTML error page)
+          const contentType = response.headers.get('content-type') || '';
+          if (!contentType.includes('application/pdf')) {
+            const errorText = await response.text().catch(() => '');
+            throw new Error(errorText || 'Server returned an invalid document file (not a PDF).');
           }
 
-          objectUrl = URL.createObjectURL(blob);
           if (active) {
-            setRenderedPdfUrl(objectUrl);
+            setRenderedPdfUrl(actualPdfUrl);
             setPdfError(null);
           }
         }
       } catch (err: any) {
-        console.error('Error generating safe blob URL for the PDF document:', err);
+        console.error('Error validating or loading the PDF document URL:', err);
         if (active) {
-          setPdfError(err?.message || 'Failed to parse or convert PDF into locally rendered document.');
+          setPdfError(err?.message || 'Failed to parse or load PDF from server.');
           setRenderedPdfUrl('');
         }
       }
