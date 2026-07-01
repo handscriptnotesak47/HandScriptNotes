@@ -108,7 +108,11 @@ async function startServer() {
 
   function getMySQLPool(): mysql.Pool {
     if (!mysqlPool) {
-      const host = process.env.DB_HOST || 'localhost';
+      let host = process.env.DB_HOST || '127.0.0.1';
+      // Force IPv4 loopback to avoid IPv6 '::1' resolution which causes Access Denied on Hostinger
+      if (host === 'localhost') {
+        host = '127.0.0.1';
+      }
       const user = process.env.DB_USER;
       const password = process.env.DB_PASS || process.env.DB_PASSWORD;
       const database = process.env.DB_NAME;
