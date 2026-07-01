@@ -39,6 +39,33 @@ $useMySQL = false;
 $pdo = null;
 $pdoError = null;
 
+/**
+ * Get highly compatible writable uploads directory path on Hostinger.
+ * Bypasses open_basedir restrictions and directory permission errors.
+ */
+function getUploadsDir() {
+    $p1 = dirname(__DIR__) . '/uploads';
+    $p2 = dirname(dirname(__DIR__)) . '/uploads';
+    $p3 = dirname(dirname(__DIR__)) . '/public/uploads';
+    
+    if (file_exists($p1) && is_dir($p1)) {
+        return $p1;
+    }
+    if (file_exists($p2) && is_dir($p2) && is_writable($p2)) {
+        return $p2;
+    }
+    if (file_exists($p3) && is_dir($p3)) {
+        return $p3;
+    }
+    
+    // Create inside public/html directory structure to guarantee open_basedir access
+    if (!file_exists($p1)) {
+        mkdir($p1, 0755, true);
+    }
+    return $p1;
+}
+
+
 // File-System Database Paths (Fallback Storage)
 $notesJsonPath = __DIR__ . '/notes_db.json';
 $queriesJsonPath = __DIR__ . '/queries_db.json';
@@ -513,7 +540,7 @@ if ($route === 'notes/update-pdf' && $_SERVER['REQUEST_METHOD'] === 'POST') {
 
     try {
         // Create uploads directory if not exists
-        $uploadsDir = dirname(dirname(__DIR__)) . '/uploads';
+        $uploadsDir = getUploadsDir();
         if (!file_exists($uploadsDir)) {
             mkdir($uploadsDir, 0755, true);
         }
@@ -855,12 +882,25 @@ if ($route === 'verify-payment' && $_SERVER['REQUEST_METHOD'] === 'POST') {
 // Serve uploaded files securely from the physical uploads directory
 if ($isUploads) {
     $filePathRelative = $matchesUploads[1];
-    $rootDir = dirname(dirname(__DIR__));
-    $filePath = $rootDir . '/uploads/' . $filePathRelative;
+    $uploadsDir = getUploadsDir();
+    $filePath = $uploadsDir . '/' . $filePathRelative;
     
-    // Fallback: check inside public/uploads just in case
+    // Fallback: check other locations if not found at default getUploadsDir()
     if (!file_exists($filePath) || !is_file($filePath)) {
-        $filePath = $rootDir . '/public/uploads/' . $filePathRelative;
+        $rootDir = dirname(dirname(__DIR__));
+        $possiblePaths = [
+            $uploadsDir . '/' . $filePathRelative,
+            $rootDir . '/uploads/' . $filePathRelative,
+            $rootDir . '/public/uploads/' . $filePathRelative,
+            $rootDir . '/public_html/uploads/' . $filePathRelative,
+            dirname(__DIR__) . '/uploads/' . $filePathRelative
+        ];
+        foreach ($possiblePaths as $path) {
+            if (file_exists($path) && is_file($path)) {
+                $filePath = $path;
+                break;
+            }
+        }
     }
 
     if (file_exists($filePath) && is_file($filePath)) {
@@ -887,16 +927,21 @@ if ($isUploads) {
 // 15. GET /api/pdf-preview/:unitId (Serves the secure 4-page sliced PDF directly from Hostinger disk)
 if ($isPdfPreview) {
     $unitId = $matches[1];
+    $uploadsDir = getUploadsDir();
     $rootDir = dirname(dirname(__DIR__));
     
     // Check multiple possible preview paths
     $possiblePreviewPaths = [
+        $uploadsDir . '/pdfs/' . $unitId . '-preview.pdf',
+        $uploadsDir . '/' . $unitId . '-preview.pdf',
         $rootDir . '/uploads/pdfs/' . $unitId . '-preview.pdf',
         $rootDir . '/uploads/' . $unitId . '-preview.pdf',
         $rootDir . '/' . $unitId . '-preview.pdf',
         $rootDir . '/public/uploads/pdfs/' . $unitId . '-preview.pdf',
         $rootDir . '/public/uploads/' . $unitId . '-preview.pdf',
-        $rootDir . '/public/' . $unitId . '-preview.pdf'
+        $rootDir . '/public/' . $unitId . '-preview.pdf',
+        dirname(__DIR__) . '/uploads/pdfs/' . $unitId . '-preview.pdf',
+        dirname(__DIR__) . '/uploads/' . $unitId . '-preview.pdf'
     ];
     
     $previewPath = null;
@@ -929,20 +974,28 @@ if ($isPdfPreview) {
             $fileName = basename($pdfUrl);
             $originalName = $pdfName ? basename($pdfName) : '';
             $possibleFullPaths = [
+                $uploadsDir . '/pdfs/' . $fileName,
+                $uploadsDir . '/' . $fileName,
                 $rootDir . '/uploads/pdfs/' . $fileName,
                 $rootDir . '/uploads/' . $fileName,
                 $rootDir . '/' . $fileName,
                 $rootDir . '/public/uploads/pdfs/' . $fileName,
                 $rootDir . '/public/uploads/' . $fileName,
-                $rootDir . '/public/' . $fileName
+                $rootDir . '/public/' . $fileName,
+                dirname(__DIR__) . '/uploads/pdfs/' . $fileName,
+                dirname(__DIR__) . '/uploads/' . $fileName
             ];
             if ($originalName) {
+                $possibleFullPaths[] = $uploadsDir . '/pdfs/' . $originalName;
+                $possibleFullPaths[] = $uploadsDir . '/' . $originalName;
                 $possibleFullPaths[] = $rootDir . '/uploads/pdfs/' . $originalName;
                 $possibleFullPaths[] = $rootDir . '/uploads/' . $originalName;
                 $possibleFullPaths[] = $rootDir . '/' . $originalName;
                 $possibleFullPaths[] = $rootDir . '/public/uploads/pdfs/' . $originalName;
                 $possibleFullPaths[] = $rootDir . '/public/uploads/' . $originalName;
                 $possibleFullPaths[] = $rootDir . '/public/' . $originalName;
+                $possibleFullPaths[] = dirname(__DIR__) . '/uploads/pdfs/' . $originalName;
+                $possibleFullPaths[] = dirname(__DIR__) . '/uploads/' . $originalName;
             }
             
             foreach ($possibleFullPaths as $fPath) {
@@ -1166,6 +1219,7 @@ if ($isPdfDownload) {
         exit;
     }
 
+    $uploadsDir = getUploadsDir();
     $rootDir = dirname(dirname(__DIR__));
     $fileName = basename($pdfUrl);
     $originalName = $pdfName ? basename($pdfName) : '';
@@ -1174,25 +1228,35 @@ if ($isPdfDownload) {
     $possiblePaths = [];
     
     if ($fileName) {
+        $possiblePaths[] = $uploadsDir . '/pdfs/' . $fileName;
+        $possiblePaths[] = $uploadsDir . '/' . $fileName;
         $possiblePaths[] = $rootDir . '/uploads/pdfs/' . $fileName;
         $possiblePaths[] = $rootDir . '/uploads/' . $fileName;
         $possiblePaths[] = $rootDir . '/' . $fileName;
         $possiblePaths[] = $rootDir . '/public/uploads/pdfs/' . $fileName;
         $possiblePaths[] = $rootDir . '/public/uploads/' . $fileName;
         $possiblePaths[] = $rootDir . '/public/' . $fileName;
+        $possiblePaths[] = dirname(__DIR__) . '/uploads/pdfs/' . $fileName;
+        $possiblePaths[] = dirname(__DIR__) . '/uploads/' . $fileName;
     }
     if ($originalName) {
+        $possiblePaths[] = $uploadsDir . '/pdfs/' . $originalName;
+        $possiblePaths[] = $uploadsDir . '/' . $originalName;
         $possiblePaths[] = $rootDir . '/uploads/pdfs/' . $originalName;
         $possiblePaths[] = $rootDir . '/uploads/' . $originalName;
         $possiblePaths[] = $rootDir . '/' . $originalName;
         $possiblePaths[] = $rootDir . '/public/uploads/pdfs/' . $originalName;
         $possiblePaths[] = $rootDir . '/public/uploads/' . $originalName;
         $possiblePaths[] = $rootDir . '/public/' . $originalName;
+        $possiblePaths[] = dirname(__DIR__) . '/uploads/pdfs/' . $originalName;
+        $possiblePaths[] = dirname(__DIR__) . '/uploads/' . $originalName;
     }
     
     // Also check common variations like space decoded or encoded
     if ($originalName && strpos($originalName, ' ') !== false) {
         $urlEncodedName = rawurlencode($originalName);
+        $possiblePaths[] = $uploadsDir . '/pdfs/' . $urlEncodedName;
+        $possiblePaths[] = $uploadsDir . '/' . $urlEncodedName;
         $possiblePaths[] = $rootDir . '/uploads/pdfs/' . $urlEncodedName;
         $possiblePaths[] = $rootDir . '/uploads/' . $urlEncodedName;
         $possiblePaths[] = $rootDir . '/' . $urlEncodedName;
@@ -1267,8 +1331,7 @@ if ($route === 'notes/upload-pdf-file' && $_SERVER['REQUEST_METHOD'] === 'POST')
     }
 
     try {
-        $rootDir = dirname(dirname(__DIR__));
-        $uploadsDir = $rootDir . '/uploads';
+        $uploadsDir = getUploadsDir();
         $pdfsDir = $uploadsDir . '/pdfs';
 
         // Auto-create uploads/ & uploads/pdfs/
