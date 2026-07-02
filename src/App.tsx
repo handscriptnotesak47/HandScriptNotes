@@ -180,6 +180,14 @@ export default function App() {
     localStorage.setItem('hsn_notes_list', JSON.stringify(notesList));
   }, [notesList]);
 
+  const [isAdminAuthenticated, setIsAdminAuthenticated] = useState<boolean>(() => {
+    return localStorage.getItem('hsn_admin_authenticated') === 'true';
+  });
+
+  useEffect(() => {
+    localStorage.setItem('hsn_admin_authenticated', isAdminAuthenticated ? 'true' : 'false');
+  }, [isAdminAuthenticated]);
+
   // Load live notes list from Express server database
   useEffect(() => {
     fetch('/api/notes')
@@ -592,6 +600,11 @@ export default function App() {
 
   // check if a unit is unlocked for current student context
   const isUnitUnlocked = (unitId: string): boolean => {
+    // 0. If logged in as Admin, everything is unlocked!
+    if (isAdminAuthenticated) {
+      return true;
+    }
+
     // 1. If any purchase for this unit by this user has status 'Pending', block access.
     const userEmail = user.isLoggedIn ? user.email.toLowerCase() : '';
     const isPending = purchases.some((p) => 
@@ -1601,6 +1614,8 @@ export default function App() {
             onAnswerQuery={handleAnswerQuery}
             onApprovePurchase={handleApprovePurchase}
             onDeclinePurchase={handleDeclinePurchase}
+            isAdminAuthenticated={isAdminAuthenticated}
+            setIsAdminAuthenticated={setIsAdminAuthenticated}
           />
         )}
 

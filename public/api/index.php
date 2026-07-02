@@ -44,6 +44,16 @@ $pdoError = null;
  * Bypasses open_basedir restrictions and directory permission errors.
  */
 function getUploadsDir() {
+    // If running on Hostinger (where path contains public_html), force uploads inside public_html.
+    // This is required to bypass open_basedir restrictions and guarantee Apache/PHP file readability.
+    if (strpos(__DIR__, 'public_html') !== false) {
+        $p1 = dirname(__DIR__) . '/uploads';
+        if (!file_exists($p1)) {
+            mkdir($p1, 0755, true);
+        }
+        return $p1;
+    }
+
     $p1 = dirname(__DIR__) . '/uploads';
     $p2 = dirname(dirname(__DIR__)) . '/uploads';
     $p3 = dirname(dirname(__DIR__)) . '/public/uploads';

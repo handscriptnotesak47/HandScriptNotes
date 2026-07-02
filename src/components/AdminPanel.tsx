@@ -20,6 +20,8 @@ interface AdminPanelProps {
   onAnswerQuery: (queryId: string) => void;
   onApprovePurchase?: (orderId: string) => void;
   onDeclinePurchase?: (orderId: string) => void;
+  isAdminAuthenticated: boolean;
+  setIsAdminAuthenticated: (val: boolean) => void;
 }
 
 export default function AdminPanel({
@@ -32,9 +34,10 @@ export default function AdminPanel({
   onRemoveUnit,
   onAnswerQuery,
   onApprovePurchase,
-  onDeclinePurchase
+  onDeclinePurchase,
+  isAdminAuthenticated,
+  setIsAdminAuthenticated
 }: AdminPanelProps) {
-  const [isAdminAuthenticated, setIsAdminAuthenticated] = useState(false);
   const [adminUsername, setAdminUsername] = useState('');
   const [adminPassword, setAdminPassword] = useState('');
   const [passError, setPassError] = useState('');
